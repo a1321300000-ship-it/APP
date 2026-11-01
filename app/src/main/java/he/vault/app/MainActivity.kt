@@ -84,7 +84,7 @@ class MainActivity : Activity() {
         previewDialog?.dismiss()
         previewDialog = null
         items = mutableListOf()
-        File(File(filesDir, "vault/.tmp").apply { mkdirs() }).listFiles()
+        File(filesDir, "vault/.tmp").apply { mkdirs() }.listFiles()
             ?.filter { it.name.startsWith("preview-") }
             ?.forEach { it.delete() }
         if (store.hasCredentials()) needsRelock = true
@@ -309,7 +309,7 @@ class MainActivity : Activity() {
         if (master == null) {
             val (_, consecutive) = store.recordFailure()
             val threshold = store.preferenceInt("scare_threshold", 2).coerceIn(1, 5)
-            if (store.preferenceBoolean("scare_enabled", true) && total % threshold == 0) showScare(false)
+            if (store.preferenceBoolean("scare_enabled", true) && consecutive % threshold == 0) showScare(false)
             if (consecutive >= 5) {
                 val level = store.preferenceInt("lockout_level", 0).coerceIn(0, 6)
                 val duration = 30_000L * (1L shl level)
