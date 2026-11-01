@@ -67,30 +67,34 @@ jobs:
 
       - name: Verify signed release APK
         if: steps.signing.outputs.ready == 'true'
+        shell: bash
         run: |
-          apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
           cp app/build/outputs/apk/release/app-release.apk vault.apk
+          test -s vault.apk
 
       - name: Publish or update the fixed GitHub Release
         if: steps.signing.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           if gh release view vault-latest >/dev/null 2>&1; then
-            gh release edit vault-latest --title "כספת – הגרסה העדכנית 1.1" --notes "הורדת הגרסה העדכנית של אפליקציית כספת."
+            gh release edit vault-latest --title "כספת – הגרסה העדכנית 1.2" --notes "הורדת הגרסה העדכנית של אפליקציית כספת."
           else
-            gh release create vault-latest vault.apk --target "$GITHUB_SHA" --title "כספת – הגרסה העדכנית 1.1" --notes "הורדת הגרסה העדכנית של אפליקציית כספת." --latest
+            gh release create vault-latest vault.apk --target "$GITHUB_SHA" --title "כספת – הגרסה העדכנית 1.2" --notes "הורדת הגרסה העדכנית של אפליקציית כספת." --latest
           fi
-          if gh release view vault-latest >/dev/null 2>&1; then
-            gh release upload vault-latest vault.apk --clobber
-          fi
-          gh release view vault-latest --json assets --jq '.assets[].name' | grep -qx 'vault.apk'
-          echo "Release asset verified: https://github.com/a1321300000-ship-it/APP/releases/download/vault-latest/vault.apk"
+          gh release upload vault-latest vault.apk --clobber
+          gh release view vault-latest --json assets --jq '.assets[] | select(.name == "vault.apk") | .size' | grep -Eq '^[1-9][0-9]*$'
+          APK_URL="https://github.com/a1321300000-ship-it/APP/releases/download/vault-latest/vault.apk"
+          curl --location --fail --silent --show-error "$APK_URL" --output "$RUNNER_TEMP/vault-download-check.apk"
+          test -s "$RUNNER_TEMP/vault-download-check.apk"
+          echo "Verified downloadable vault.apk ($(stat -c%s "$RUNNER_TEMP/vault-download-check.apk") bytes): $APK_URL"
 
       - name: Upload debug APK fallback
         uses: actions/upload-artifact@v4
         with:
-          name: vault-debug-apk-v1.1
+          name: vault-debug-apk-v1.2
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
@@ -99,7 +103,7 @@ jobs:
         if: steps.signing.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: vault-release-apk-v1.1
+          name: vault-release-apk-v1.2
           path: vault.apk
           if-no-files-found: error
           retention-days: 30
