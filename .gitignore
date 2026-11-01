@@ -1,0 +1,10 @@
+# Never commit private Android signing material
+*.jks
+*.keystore
+vault-release-key.jks
+local.properties
+
+# Gradle and Android Studio output
+.gradle/
+**/build/
+.idea/

@@ -26,7 +26,8 @@ data class VaultItem(
     val created: Long
 )
 
-data class FailedAttempt(val time: Long, val count: Int)
+data class FailedAttempt(val id: String, val time: Long, val count: Int)
+data class FailureRecord(val total: Int, val consecutive: Int, val attemptId: String)
 
 class VaultStore(private val context: Context) {
     private val base = File(context.filesDir, "vault").apply { mkdirs() }
@@ -34,6 +35,7 @@ class VaultStore(private val context: Context) {
     private val indexFile = File(base, "index.enc")
     private val credentialFile = File(base, "credentials.json")
     private val prefs = context.getSharedPreferences("vault_settings", Context.MODE_PRIVATE)
+    private val attemptImages = AttemptImageStore(context)
 
     fun hasCredentials(): Boolean = Credentials.load(credentialFile) != null
     fun loadCredentials(): CredentialSet? = Credentials.load(credentialFile)
@@ -118,25 +120,42 @@ class VaultStore(private val context: Context) {
     fun preferenceLong(key: String, default: Long) = prefs.getLong(key, default)
     fun setPreferenceLong(key: String, value: Long) { prefs.edit().putLong(key, value).apply() }
 
-    fun recordFailure(): Pair<Int, Int> {
+    fun recordFailure(): FailureRecord {
         val consecutive = prefs.getInt("consecutive_failures", 0) + 1
         val total = prefs.getInt("total_failures", 0) + 1
+        val attemptId = UUID.randomUUID().toString()
         prefs.edit().putInt("consecutive_failures", consecutive).putInt("total_failures", total).apply()
         val history = try { JSONArray(prefs.getString("attempt_history", "[]")) } catch (_: Exception) { JSONArray() }
-        history.put(JSONObject().put("time", System.currentTimeMillis()).put("count", consecutive))
-        while (history.length() > 100) history.remove(0)
+        history.put(JSONObject()
+            .put("id", attemptId)
+            .put("time", System.currentTimeMillis())
+            .put("count", consecutive))
+        while (history.length() > 100) {
+            val removedId = history.optJSONObject(0)?.optString("id", "")
+            if (!removedId.isNullOrBlank()) attemptImages.delete(removedId)
+            history.remove(0)
+        }
         prefs.edit().putString("attempt_history", history.toString()).apply()
-        return Pair(total, consecutive)
+        return FailureRecord(total, consecutive, attemptId)
     }
 
+    fun saveAttemptPhoto(attemptId: String, jpeg: ByteArray) = attemptImages.save(attemptId, jpeg)
+    fun readAttemptPhoto(attemptId: String): ByteArray? = attemptImages.read(attemptId)
+    fun hasAttemptPhoto(attemptId: String): Boolean = attemptImages.exists(attemptId)
+    fun deleteAttemptPhoto(attemptId: String) = attemptImages.delete(attemptId)
+
     fun resetConsecutiveFailures() { prefs.edit().putInt("consecutive_failures", 0).apply() }
-    fun clearAttemptHistory() { prefs.edit().remove("attempt_history").apply() }
+    fun clearAttemptHistory() {
+        attemptImages.clear()
+        prefs.edit().remove("attempt_history").apply()
+    }
     fun getAttemptHistory(): List<FailedAttempt> {
         val array = try { JSONArray(prefs.getString("attempt_history", "[]")) } catch (_: Exception) { JSONArray() }
         return (0 until array.length()).mapNotNull { i ->
             try {
                 val item = array.getJSONObject(i)
-                FailedAttempt(item.getLong("time"), item.getInt("count"))
+                val id = item.optString("id", "legacy-${item.getLong("time")}")
+                FailedAttempt(id, item.getLong("time"), item.getInt("count"))
             } catch (_: Exception) { null }
         }.reversed()
     }

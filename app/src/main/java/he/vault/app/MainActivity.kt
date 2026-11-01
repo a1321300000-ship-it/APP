@@ -1,9 +1,11 @@
 package he.vault.app
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
@@ -11,7 +13,11 @@ import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
@@ -32,6 +38,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.random.Random
 
 class MainActivity : Activity() {
     private lateinit var store: VaultStore
@@ -42,6 +49,10 @@ class MainActivity : Activity() {
     private var pendingAction: PendingAction? = null
     private var scareDialog: Dialog? = null
     private var previewDialog: AlertDialog? = null
+    private var pendingScareAttemptId: String? = null
+    private var activeScareDemo = false
+    private var cameraPermissionRequestInProgress = false
+    private var activeRadarView: RadarView? = null
     private val handler = Handler(Looper.getMainLooper())
     private var searchText = ""
     private var sortMode = "date"
@@ -59,6 +70,7 @@ class MainActivity : Activity() {
         private const val REQ_EXPORT = 102
         private const val REQ_BACKUP = 103
         private const val REQ_RESTORE = 104
+        private const val REQ_CAMERA = 105
         private const val BG = 0xFF090D16.toInt()
         private const val PANEL = 0xFF141D2B.toInt()
         private const val PANEL_2 = 0xFF1C293A.toInt()
@@ -87,12 +99,12 @@ class MainActivity : Activity() {
         File(filesDir, "vault/.tmp").apply { mkdirs() }.listFiles()
             ?.filter { it.name.startsWith("preview-") }
             ?.forEach { it.delete() }
-        if (store.hasCredentials()) needsRelock = true
+        if (store.hasCredentials() && !cameraPermissionRequestInProgress) needsRelock = true
     }
 
     override fun onResume() {
         super.onResume()
-        if (needsRelock && store.hasCredentials()) {
+        if (needsRelock && store.hasCredentials() && !cameraPermissionRequestInProgress) {
             needsRelock = false
             showUnlock()
         }
@@ -100,8 +112,26 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         masterKey?.fill(0)
+        activeRadarView?.stop()
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
+    }
+
+    @Deprecated("Deprecated by the platform; retained for Android 7 compatibility")
+    override fun onBackPressed() {
+        if (scareDialog?.isShowing == true && !activeScareDemo) return
+        super.onBackPressed()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_CAMERA) {
+            cameraPermissionRequestInProgress = false
+            val attemptId = pendingScareAttemptId
+            pendingScareAttemptId = null
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            showScare(false, attemptId, granted)
+        }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -307,16 +337,19 @@ class MainActivity : Activity() {
         val credentials = store.loadCredentials()
         val master = credentials?.let { Credentials.unlock(it, code, type) }
         if (master == null) {
-            val (_, consecutive) = store.recordFailure()
+            val failure = store.recordFailure()
+            val consecutive = failure.consecutive
             val threshold = store.preferenceInt("scare_threshold", 2).coerceIn(1, 5)
-            if (store.preferenceBoolean("scare_enabled", true) && consecutive % threshold == 0) showScare(false)
+            if (store.preferenceBoolean("scare_enabled", true) && consecutive % threshold == 0) {
+                requestScare(failure.attemptId)
+            }
             if (consecutive >= 5) {
                 val level = store.preferenceInt("lockout_level", 0).coerceIn(0, 6)
                 val duration = 30_000L * (1L shl level)
                 store.setPreferenceLong("lockout_until", System.currentTimeMillis() + duration)
                 store.setPreferenceInt("lockout_level", (level + 1).coerceAtMost(6))
                 store.resetConsecutiveFailures()
-                handler.postDelayed({ if (!isFinishing) showUnlock() }, 500)
+                handler.postDelayed({ if (!isFinishing && scareDialog?.isShowing != true) showUnlock() }, 500)
                 toast("יותר מדי ניסיונות. הכספת ננעלה לזמן קצר.")
             } else {
                 toast("קוד שגוי")
@@ -336,6 +369,35 @@ class MainActivity : Activity() {
             toast("לא ניתן לפתוח את הכספת: ${e.message ?: "נתונים פגומים"}")
             showUnlock()
         }
+    }
+
+    private fun requestScare(attemptId: String) {
+        pendingScareAttemptId = attemptId
+        val hasFrontCamera = packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_FRONT)
+        if (!hasFrontCamera) {
+            showScare(false, attemptId, false)
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            showScare(false, attemptId, true)
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("הרשאת מצלמה קדמית")
+            .setMessage("כדי להציג תצוגה חיה ולשמור תמונת ניסיון מוצפנת ביומן המקומי, נדרשת הרשאת מצלמה. המצלמה והתמונה יוצגו באופן גלוי, והתמונה לא תישלח לשום מקום.")
+            .setPositiveButton("אישור והמשך") { _, _ ->
+                cameraPermissionRequestInProgress = true
+                requestPermissions(arrayOf(Manifest.permission.CAMERA), REQ_CAMERA)
+            }
+            .setNegativeButton("המשך ללא מצלמה") { _, _ ->
+                pendingScareAttemptId = null
+                showScare(false, attemptId, false)
+            }
+            .setOnCancelListener {
+                pendingScareAttemptId = null
+                showScare(false, attemptId, false)
+            }
+            .show()
     }
 
     private fun performPendingOrShowHome() {
@@ -672,7 +734,7 @@ class MainActivity : Activity() {
             }.setNegativeButton("ביטול", null).show()
         }))
         addGap(page, 8)
-        page.addView(makeButton("הדגמת מסך ההתרעה", { showScare(true) }, true))
+        page.addView(makeButton("הדגמת מסך ההתרעה", { showScare(true, null, false) }, true))
         addGap(page, 8)
         page.addView(makeButton("שינוי קוד מספרי", { changePinDialog() }))
         addGap(page, 8)
@@ -738,97 +800,341 @@ class MainActivity : Activity() {
 
     private fun showHistory() {
         val page = newRoot()
-        addTitleAndSubtitle(page, "יומן ניסיונות", "היומן נשמר מקומית ומציג ניסיונות כושלים בלבד")
+        addTitleAndSubtitle(page, "יומן ניסיונות", "היומן והתמונות נשמרים מקומית בלבד. תמונות מוצגות לאחר פתיחה תקינה של הכספת.")
         val history = store.getAttemptHistory()
-        if (history.isEmpty()) page.addView(body("אין ניסיונות כושלים שמורים."))
-        else history.forEach { event ->
-            val date = SimpleDateFormat("dd/MM/yyyy · HH:mm:ss", Locale("he", "IL")).format(Date(event.time))
-            val row = card()
-            row.addView(title("ניסיון כושל", 16f))
-            addGap(row, 4)
-            row.addView(body(date))
-            row.addView(body("רצף ניסיונות: ${event.count}", 13f))
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.bottomMargin = dp(7)
-            page.addView(row, lp)
-        }
-        if (history.size > 8) {
-            val scroll = ScrollView(this)
-            val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_RTL }
+        val scroll = ScrollView(this)
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_RTL }
+        if (history.isEmpty()) {
+            content.addView(body("אין ניסיונות כושלים שמורים."))
+        } else {
             history.forEach { event ->
                 val date = SimpleDateFormat("dd/MM/yyyy · HH:mm:ss", Locale("he", "IL")).format(Date(event.time))
-                content.addView(body("$date  ·  רצף: ${event.count}", 14f, WHITE))
+                val row = card()
+                row.addView(title("ניסיון כושל", 16f))
+                addGap(row, 4)
+                row.addView(body(date))
+                row.addView(body("רצף ניסיונות: ${event.count}", 13f))
+                if (store.hasAttemptPhoto(event.id)) {
+                    addGap(row, 7)
+                    row.addView(body("תמונת ניסיון מוצפנת שמורה במכשיר", 13f, ACCENT))
+                    val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_RTL }
+                    buttons.addView(makeButton("צפייה בתמונה", {
+                        try {
+                            val bytes = store.readAttemptPhoto(event.id) ?: throw IllegalStateException("התמונה לא נמצאה")
+                            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                ?: throw IllegalStateException("לא ניתן לפענח את התמונה")
+                            val image = ImageView(this@MainActivity).apply {
+                                setImageBitmap(bitmap)
+                                adjustViewBounds = true
+                                scaleType = ImageView.ScaleType.FIT_CENTER
+                                setPadding(dp(8), dp(8), dp(8), dp(8))
+                            }
+                            AlertDialog.Builder(this@MainActivity)
+                                .setTitle("תמונת ניסיון")
+                                .setView(image)
+                                .setPositiveButton("סגירה", null)
+                                .show()
+                        } catch (e: Exception) {
+                            toast("לא ניתן להציג את התמונה: ${e.message ?: "שגיאה"}")
+                        }
+                    }, true), LinearLayout.LayoutParams(0, dp(42), 1f))
+                    buttons.addView(View(this), LinearLayout.LayoutParams(dp(7), 1))
+                    buttons.addView(makeButton("מחיקת תמונה", {
+                        confirmAction("מחיקת תמונת ניסיון", "התמונה המוצפנת תימחק לצמיתות מהאחסון הפרטי.") {
+                            store.deleteAttemptPhoto(event.id)
+                            showHistory()
+                        }
+                    }), LinearLayout.LayoutParams(0, dp(42), 1f))
+                    row.addView(buttons)
+                } else {
+                    row.addView(body("לא נשמרה תמונה לניסיון זה", 12f))
+                }
+                val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                lp.bottomMargin = dp(8)
+                content.addView(row, lp)
             }
-            scroll.addView(content)
-            page.removeViews(1, page.childCount - 1)
-            page.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         }
-        addGap(page, 12)
-        page.addView(makeButton("מחיקת יומן ניסיונות", { confirmAction("מחיקת יומן", "כל רשומות הניסיונות הכושלים יימחקו לצמיתות.") { store.clearAttemptHistory(); toast("היומן נמחק"); showHistory() } }))
+        scroll.addView(content)
+        page.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        addGap(page, 10)
+        page.addView(makeButton("מחיקת יומן הניסיונות והתמונות", {
+            confirmAction("מחיקת יומן", "כל רשומות הניסיונות וכל תמונות הניסיון המוצפנות יימחקו לצמיתות.") {
+                store.clearAttemptHistory()
+                toast("היומן והתמונות נמחקו")
+                showHistory()
+            }
+        }))
         addGap(page, 8)
         page.addView(makeButton("חזרה להגדרות", { showSettings() }))
     }
 
-    private fun showScare(demo: Boolean) {
+    private fun showScare(demo: Boolean, attemptId: String?, useCamera: Boolean) {
         if (isFinishing) return
         val dialog = Dialog(this)
         scareDialog = dialog
+        activeScareDemo = demo
+
+        val scroll = ScrollView(this)
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setPadding(dp(26), dp(30), dp(26), dp(30))
+            setPadding(dp(20), dp(16), dp(20), dp(22))
             setBackgroundColor(0xFF05070C.toInt())
         }
+        scroll.addView(layout)
+
         val emblem = TextView(this).apply {
-            text = "◉"
-            textSize = 58f
+            text = "◈"
+            textSize = 43f
             setTextColor(ACCENT)
             gravity = Gravity.CENTER
         }
         layout.addView(emblem)
-        val heading = title("זוהה ניסיון גישה לא מורשה", 22f).apply { gravity = Gravity.CENTER; setTextColor(RED) }
-        addGap(layout, 15)
-        layout.addView(heading)
-        addGap(layout, 12)
-        val scanText = body("סורק נתוני גישה...", 17f, WHITE).apply { gravity = Gravity.CENTER }
-        layout.addView(scanText)
-        addGap(layout, 18)
+        layout.addView(title("מרכז אבטחה מקומי", 23f).apply { gravity = Gravity.CENTER; setTextColor(WHITE) })
+        addGap(layout, 2)
+        layout.addView(body("הדמיה בלבד · לא נשלח דיווח ולא מתבצעת תקשורת", 12f, ACCENT).apply { gravity = Gravity.CENTER })
+
+        var cameraStatus: TextView? = null
+        var cameraPreview: FrontCameraPreview? = null
+        if (useCamera && attemptId != null) {
+            addGap(layout, 9)
+            cameraStatus = body("המצלמה פעילה. התמונה תישמר מוצפנת במכשיר בלבד.", 13f, ACCENT).apply { gravity = Gravity.CENTER }
+            layout.addView(cameraStatus)
+            lateinit var preview: FrontCameraPreview
+            preview = FrontCameraPreview(
+                this,
+                onPhoto = { bytes ->
+                    try {
+                        store.saveAttemptPhoto(attemptId, bytes)
+                        cameraStatus?.text = "התמונה שלך נשמרה מוצפנת במכשיר בלבד"
+                        cameraStatus?.setTextColor(ACCENT)
+                    } catch (e: Exception) {
+                        cameraStatus?.text = "שמירת התמונה נכשלה: ${e.message ?: "שגיאה"}"
+                        cameraStatus?.setTextColor(RED)
+                    }
+                },
+                onUnavailable = { message ->
+                    cameraStatus?.text = message + " · ממשיך בהדמיה ללא מצלמה"
+                    cameraStatus?.setTextColor(RED)
+                },
+                onReady = {
+                    handler.postDelayed({
+                        if (dialog.isShowing) preview.captureOnce()
+                    }, 1400)
+                }
+            )
+            cameraPreview = preview
+            layout.addView(preview, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(185)))
+        } else {
+            addGap(layout, 8)
+            layout.addView(body(if (demo) "הדגמה — ללא צילום וללא שמירת תמונה" else "מצב ללא מצלמה · תהליך הדמיה מקומי", 13f, MUTED).apply { gravity = Gravity.CENTER })
+        }
+
+        addGap(layout, 10)
+        val radar = RadarView(this)
+        activeRadarView = radar
+        layout.addView(radar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(145)))
+        val stageTitle = title("מאתר את המכשיר...", 19f).apply { gravity = Gravity.CENTER; setTextColor(ACCENT) }
+        layout.addView(stageTitle)
+        addGap(layout, 5)
+        val stageDetail = body("מכ"ם מקומי סורק · הדמיה בלבד", 13f, WHITE).apply { gravity = Gravity.CENTER }
+        layout.addView(stageDetail)
+        addGap(layout, 8)
+
+        val fingerprintPad = TextView(this).apply {
+            text = "☝"
+            textSize = 43f
+            setTextColor(ACCENT)
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            background = GradientDrawable().apply {
+                setColor(0xFF111C2B.toInt())
+                cornerRadius = dp(16).toFloat()
+                setStroke(dp(1), ACCENT)
+            }
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+        }
+        layout.addView(fingerprintPad, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(76)))
+        val fingerprintStatus = body("הנח את האצבע על המסך לאימות", 13f, MUTED).apply { gravity = Gravity.CENTER; visibility = View.GONE }
+        layout.addView(fingerprintStatus)
         val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             this.progress = 0
+            visibility = View.GONE
         }
-        layout.addView(progress, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)))
-        addGap(layout, 16)
-        val detail = body("מזהה פעילות חריגה במכשיר", 14f).apply { gravity = Gravity.CENTER }
-        layout.addView(detail)
-        addGap(layout, 30)
-        layout.addView(body("${if (demo) "מצב הדגמה" else "הגישה לכספת חסומה"} · המידע נשאר במכשיר", 13f, ACCENT).apply { gravity = Gravity.CENTER })
-        addGap(layout, 8)
-        layout.addView(body("הצגה בלבד · לא מתבצע צילום ולא נשלח מידע", 12f).apply { gravity = Gravity.CENTER })
-        dialog.setContentView(layout)
-        dialog.setCancelable(false)
+        layout.addView(progress, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(7)))
+
+        val deviceInfo = body("", 12f, WHITE).apply {
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = GradientDrawable().apply { setColor(0xFF111C2B.toInt()); cornerRadius = dp(12).toFloat() }
+        }
+        layout.addView(deviceInfo)
+        val caseInfo = body("", 13f, WHITE).apply {
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = GradientDrawable().apply { setColor(0xFF111C2B.toInt()); cornerRadius = dp(12).toFloat(); setStroke(dp(1), 0xFF34445A.toInt()) }
+        }
+        layout.addView(caseInfo)
+        val countdown = body("", 14f, RED).apply { gravity = Gravity.CENTER; visibility = View.GONE }
+        layout.addView(countdown)
+        val stamp = TextView(this).apply {
+            text = "התקבל"
+            textSize = 40f
+            typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
+            setTextColor(RED)
+            gravity = Gravity.CENTER
+            rotation = -7f
+            alpha = 0f
+            scaleX = 2.3f
+            scaleY = 2.3f
+            background = GradientDrawable().apply {
+                setColor(0x22000000)
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(4), RED)
+            }
+            setPadding(dp(22), dp(8), dp(22), dp(8))
+            visibility = View.GONE
+        }
+        layout.addView(stamp, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(88)))
+        addGap(layout, 7)
+        val footer = body("הדמיה מקומית בלבד · אין דיווח חיצוני", 11f, ACCENT).apply { gravity = Gravity.CENTER }
+        layout.addView(footer)
+        if (demo) {
+            addGap(layout, 7)
+            layout.addView(makeButton("סיום הדגמה", { dialog.dismiss() }))
+        }
+
+        dialog.setContentView(scroll)
+        dialog.setCancelable(demo)
+        dialog.setCanceledOnTouchOutside(demo)
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
         dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        dialog.window?.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
         dialog.show()
         dialog.window?.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
-        val tone = try { ToneGenerator(AudioManager.STREAM_ALARM, 65).also { it.startTone(ToneGenerator.TONE_PROP_BEEP, 600) } } catch (_: Exception) { null }
-        val messages = arrayOf("סורק פנים...", "מזהה את המשתמש...", "מתעד את המכשיר...", "בודק הרשאות גישה...", "הגישה לכספת נחסמה")
-        val start = System.currentTimeMillis()
+
+        var touchedFingerprint = false
+        var fingerprintAnimating = false
+        fingerprintPad.setOnTouchListener { _, event ->
+            if (event.action == android.view.MotionEvent.ACTION_DOWN && !touchedFingerprint && dialog.isShowing) {
+                touchedFingerprint = true
+                fingerprintAnimating = true
+                fingerprintStatus.text = "סורק נקודת מגע..."
+                progress.visibility = View.VISIBLE
+                var step = 0
+                val scan = object : Runnable {
+                    override fun run() {
+                        if (!dialog.isShowing) return
+                        step = (step + 10).coerceAtMost(100)
+                        progress.progress = step
+                        fingerprintStatus.text = "סריקת מגע: $step%"
+                        if (step < 100) handler.postDelayed(this, 65)
+                        else {
+                            fingerprintAnimating = false
+                            fingerprintStatus.text = "דפוס המגע נקלט בהדמיה בלבד"
+                        }
+                    }
+                }
+                handler.post(scan)
+                true
+            } else false
+        }
+
+        val batteryIntent = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val batteryLevel = batteryIntent?.getIntExtra("level", -1) ?: -1
+        val batteryScale = batteryIntent?.getIntExtra("scale", 100) ?: 100
+        val batteryPercent = if (batteryLevel >= 0 && batteryScale > 0) (batteryLevel * 100 / batteryScale) else -1
+        val timeText = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("he", "IL")).format(Date())
+        val deviceText = "דגם: ${Build.MANUFACTURER} ${Build.MODEL}\nAndroid: ${Build.VERSION.RELEASE}\nסוללה: ${if (batteryPercent >= 0) "$batteryPercent%" else "לא זמין"}\nתאריך ושעה: $timeText"
+        val caseNumber = Random.nextInt(1000, 10000)
+        val caseText = "נפתח אירוע אבטחה מספר $caseNumber\nסוג: ניסיון גישה לא מורשה\nסטטוס: נשמר במכשיר בלבד\nהדמיה בלבד — לא נשלח דיווח"
+        var finalEffectsPlayed = false
+        val tone = try { ToneGenerator(AudioManager.STREAM_ALARM, 70) } catch (_: Exception) { null }
+        val vibrator = getSystemService(VIBRATOR_SERVICE) as? Vibrator
+        val start = SystemClock.uptimeMillis()
         val runner = object : Runnable {
             override fun run() {
                 if (!dialog.isShowing) return
-                val elapsed = System.currentTimeMillis() - start
-                val pct = ((elapsed / 5000f) * 100).toInt().coerceIn(0, 100)
-                progress.progress = pct
-                scanText.text = messages[((elapsed / 950L).toInt()).coerceIn(0, messages.lastIndex)]
-                if (pct >= 100) dialog.dismiss() else handler.postDelayed(this, 100)
+                val elapsed = SystemClock.uptimeMillis() - start
+                when {
+                    elapsed < 2500L -> {
+                        radar.visibility = View.VISIBLE
+                        fingerprintPad.visibility = View.GONE
+                        fingerprintStatus.visibility = View.GONE
+                        progress.visibility = View.GONE
+                        deviceInfo.visibility = View.GONE
+                        caseInfo.visibility = View.GONE
+                        countdown.visibility = View.GONE
+                        stamp.visibility = View.GONE
+                        stageTitle.text = "מאתר את המכשיר..."
+                        stageDetail.text = if (elapsed < 1300L) "מכ"ם מקומי סורק · הדמיה בלבד" else "המיקום אותר (מיקום מדומה)"
+                    }
+                    elapsed < 5200L -> {
+                        radar.visibility = View.GONE
+                        fingerprintPad.visibility = View.VISIBLE
+                        fingerprintStatus.visibility = View.VISIBLE
+                        stageTitle.text = "סריקת מגע"
+                        stageDetail.text = "הנח את האצבע על המסך לאימות"
+                        if (!touchedFingerprint) fingerprintStatus.text = "לא נאסף מידע ביומטרי · נגיעה היא חלק מההדמיה"
+                        if (!fingerprintAnimating && !touchedFingerprint) progress.visibility = View.GONE
+                    }
+                    elapsed < 8200L -> {
+                        radar.visibility = View.GONE
+                        fingerprintPad.visibility = View.GONE
+                        fingerprintStatus.visibility = View.GONE
+                        progress.visibility = View.GONE
+                        deviceInfo.visibility = View.VISIBLE
+                        stageTitle.text = "נתוני המכשיר נאספו"
+                        stageDetail.text = "מידע מקומי בלבד"
+                        deviceInfo.text = deviceText
+                    }
+                    elapsed < 11200L -> {
+                        deviceInfo.visibility = View.GONE
+                        caseInfo.visibility = View.VISIBLE
+                        stageTitle.text = "פתיחת אירוע אבטחה (הדמיה)"
+                        stageDetail.text = "מעבד את פרטי הניסיון המקומיים..."
+                        val chars = ((elapsed - 8200L) / 24L).toInt().coerceIn(0, caseText.length)
+                        caseInfo.text = caseText.take(chars)
+                        countdown.visibility = View.VISIBLE
+                        val remaining = ((11200L - elapsed) / 1000L).coerceAtLeast(0L)
+                        countdown.text = "סיום התהליך בעוד 00:0$remaining"
+                    }
+                    elapsed < 14000L -> {
+                        caseInfo.visibility = View.GONE
+                        countdown.visibility = View.GONE
+                        stageTitle.text = "הסתיים תהליך ההדמיה"
+                        stageDetail.text = "הגישה לכספת נשארת נעולה"
+                        stamp.visibility = View.VISIBLE
+                        stamp.alpha = 1f
+                        stamp.animate().scaleX(1f).scaleY(1f).setDuration(260).start()
+                        if (!finalEffectsPlayed) {
+                            finalEffectsPlayed = true
+                            try {
+                                tone?.startTone(ToneGenerator.TONE_PROP_BEEP2, 250)
+                                handler.postDelayed({ try { tone?.startTone(ToneGenerator.TONE_PROP_BEEP2, 250) } catch (_: Exception) { } }, 320)
+                                if (Build.VERSION.SDK_INT >= 26) {
+                                    vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 180, 100, 180, 100, 350), -1))
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    vibrator?.vibrate(650)
+                                }
+                            } catch (_: Exception) { }
+                        }
+                    }
+                    else -> dialog.dismiss()
+                }
+                if (elapsed < 14000L) handler.postDelayed(this, 90)
             }
         }
         dialog.setOnDismissListener {
             handler.removeCallbacks(runner)
-            try { tone?.stopTone(); tone?.release() } catch (_: Exception) {}
+            activeRadarView?.stop()
+            activeRadarView = null
+            try { tone?.stopTone(); tone?.release() } catch (_: Exception) { }
+            try { vibrator?.cancel() } catch (_: Exception) { }
             if (scareDialog === dialog) scareDialog = null
         }
         handler.post(runner)

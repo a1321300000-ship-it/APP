@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build and publish Vault APK
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 jobs:
@@ -15,25 +15,91 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: "17"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 8.7
+          gradle-version: "8.7"
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+
       - name: Install Android platform
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
-      - name: Upload APK
+
+      - name: Prepare permanent signing key
+        id: signing
+        shell: bash
+        env:
+          VAULT_KEYSTORE_BASE64: ${{ secrets.VAULT_KEYSTORE_BASE64 }}
+          VAULT_KEYSTORE_PASSWORD: ${{ secrets.VAULT_KEYSTORE_PASSWORD }}
+          VAULT_KEY_ALIAS: ${{ secrets.VAULT_KEY_ALIAS }}
+          VAULT_KEY_PASSWORD: ${{ secrets.VAULT_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$VAULT_KEYSTORE_BASE64" && -n "$VAULT_KEYSTORE_PASSWORD" && -n "$VAULT_KEY_ALIAS" && -n "$VAULT_KEY_PASSWORD" ]]; then
+            printf '%s' "$VAULT_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/vault-release-key.jks"
+            test -s "$GITHUB_WORKSPACE/vault-release-key.jks"
+            chmod 600 "$GITHUB_WORKSPACE/vault-release-key.jks"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Permanent signing key loaded."
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Signing secrets are not configured. Building a debug APK only; no Release will be published."
+          fi
+
+      - name: Build APK
+        shell: bash
+        env:
+          VAULT_KEYSTORE_PASSWORD: ${{ secrets.VAULT_KEYSTORE_PASSWORD }}
+          VAULT_KEY_ALIAS: ${{ secrets.VAULT_KEY_ALIAS }}
+          VAULT_KEY_PASSWORD: ${{ secrets.VAULT_KEY_PASSWORD }}
+        run: |
+          gradle --no-daemon :app:assembleDebug
+          if [[ "${{ steps.signing.outputs.ready }}" == "true" ]]; then
+            gradle --no-daemon :app:assembleRelease
+          fi
+
+      - name: Verify signed release APK
+        if: steps.signing.outputs.ready == 'true'
+        run: |
+          apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          cp app/build/outputs/apk/release/app-release.apk vault.apk
+
+      - name: Publish or update the fixed GitHub Release
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view vault-latest >/dev/null 2>&1; then
+            gh release edit vault-latest --title "כספת – הגרסה העדכנית 1.1" --notes "הורדת הגרסה העדכנית של אפליקציית כספת."
+          else
+            gh release create vault-latest vault.apk --target "$GITHUB_SHA" --title "כספת – הגרסה העדכנית 1.1" --notes "הורדת הגרסה העדכנית של אפליקציית כספת." --latest
+          fi
+          if gh release view vault-latest >/dev/null 2>&1; then
+            gh release upload vault-latest vault.apk --clobber
+          fi
+          gh release view vault-latest --json assets --jq '.assets[].name' | grep -qx 'vault.apk'
+          echo "Release asset verified: https://github.com/a1321300000-ship-it/APP/releases/download/vault-latest/vault.apk"
+
+      - name: Upload debug APK fallback
         uses: actions/upload-artifact@v4
         with:
-          name: vault-debug-apk
+          name: vault-debug-apk-v1.1
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload signed release APK backup
+        if: steps.signing.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-release-apk-v1.1
+          path: vault.apk
           if-no-files-found: error
           retention-days: 30
