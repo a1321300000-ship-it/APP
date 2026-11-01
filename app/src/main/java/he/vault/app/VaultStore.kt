@@ -73,12 +73,12 @@ class VaultStore(private val context: Context) {
         val id = UUID.randomUUID().toString()
         val target = File(dataDir, "$id.bin")
         try {
-            BufferedInputStream(input).use { source ->
+            val plainSize = BufferedInputStream(input).use { source ->
                 BufferedOutputStream(FileOutputStream(target)).use { output ->
                     VaultCrypto.encryptStream(source, output, master, "file:$id")
                 }
             }
-            return VaultItem(id, name, mime.ifBlank { "application/octet-stream" }, target.length(), System.currentTimeMillis())
+            return VaultItem(id, name, mime.ifBlank { "application/octet-stream" }, plainSize, System.currentTimeMillis())
         } catch (e: Exception) {
             target.delete()
             throw e
@@ -144,7 +144,7 @@ class VaultStore(private val context: Context) {
     fun writeBackup(uri: Uri, resolver: ContentResolver, master: ByteArray) {
         val creds = loadCredentials() ?: throw IllegalStateException("פרטי הכניסה חסרים")
         val header = Credentials.toJson(creds)
-        val zipFile = File(context.cacheDir, "vault-backup-${UUID.randomUUID()}.zip")
+        val zipFile = File(File(base, ".tmp").apply { mkdirs() }, "vault-backup-${UUID.randomUUID()}.zip")
         try {
             ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { zip ->
                 if (indexFile.exists()) addZipFile(zip, indexFile, "index.enc")
@@ -168,8 +168,8 @@ class VaultStore(private val context: Context) {
     }
 
     fun restoreBackup(uri: Uri, resolver: ContentResolver, code: String): ByteArray {
-        val tempZip = File(context.cacheDir, "vault-restore-${UUID.randomUUID()}.zip")
-        val tempDir = File(context.cacheDir, "vault-restore-${UUID.randomUUID()}")
+        val tempZip = File(File(base, ".tmp").apply { mkdirs() }, "vault-restore-${UUID.randomUUID()}.zip")
+        val tempDir = File(File(base, ".tmp").apply { mkdirs() }, "vault-restore-${UUID.randomUUID()}")
         try {
             val decoded = resolver.openInputStream(uri)?.use { raw ->
                 val data = java.io.DataInputStream(BufferedInputStream(raw))

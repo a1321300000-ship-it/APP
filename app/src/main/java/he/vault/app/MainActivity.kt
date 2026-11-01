@@ -41,6 +41,7 @@ class MainActivity : Activity() {
     private var needsRelock = false
     private var pendingAction: PendingAction? = null
     private var scareDialog: Dialog? = null
+    private var previewDialog: AlertDialog? = null
     private val handler = Handler(Looper.getMainLooper())
     private var searchText = ""
     private var sortMode = "date"
@@ -80,6 +81,12 @@ class MainActivity : Activity() {
         super.onPause()
         masterKey?.fill(0)
         masterKey = null
+        previewDialog?.dismiss()
+        previewDialog = null
+        items = mutableListOf()
+        File(File(filesDir, "vault/.tmp").apply { mkdirs() }).listFiles()
+            ?.filter { it.name.startsWith("preview-") }
+            ?.forEach { it.delete() }
         if (store.hasCredentials()) needsRelock = true
     }
 
@@ -300,7 +307,7 @@ class MainActivity : Activity() {
         val credentials = store.loadCredentials()
         val master = credentials?.let { Credentials.unlock(it, code, type) }
         if (master == null) {
-            val (total, consecutive) = store.recordFailure()
+            val (_, consecutive) = store.recordFailure()
             val threshold = store.preferenceInt("scare_threshold", 2).coerceIn(1, 5)
             if (store.preferenceBoolean("scare_enabled", true) && total % threshold == 0) showScare(false)
             if (consecutive >= 5) {
@@ -605,7 +612,7 @@ class MainActivity : Activity() {
 
     private fun previewItem(item: VaultItem) {
         val key = masterKey ?: run { showUnlock(); return }
-        val temp = File(cacheDir, "preview-${item.id}")
+        val temp = File(File(filesDir, "vault/.tmp").apply { mkdirs() }, "preview-${item.id}")
         try {
             store.decryptToFile(item, temp, key)
             if (item.mime.startsWith("image/")) {
@@ -618,7 +625,8 @@ class MainActivity : Activity() {
                     setPadding(dp(8), dp(8), dp(8), dp(8))
                 }
                 val dialog = AlertDialog.Builder(this).setTitle(item.name).setView(image).setPositiveButton("סגירה", null).create()
-                dialog.setOnDismissListener { temp.delete() }
+                previewDialog = dialog
+                dialog.setOnDismissListener { temp.delete(); if (previewDialog === dialog) previewDialog = null }
                 dialog.show()
             } else if (item.mime.startsWith("text/") || item.mime.contains("json") || item.mime.contains("xml")) {
                 val text = temp.inputStream().bufferedReader().use { it.readText().take(400_000) }
@@ -626,7 +634,8 @@ class MainActivity : Activity() {
                 val tv = body(text, 14f, WHITE).apply { setPadding(dp(14), dp(14), dp(14), dp(14)); textDirection = View.TEXT_DIRECTION_FIRST_STRONG }
                 scroll.addView(tv)
                 val dialog = AlertDialog.Builder(this).setTitle(item.name).setView(scroll).setPositiveButton("סגירה", null).create()
-                dialog.setOnDismissListener { temp.delete() }
+                previewDialog = dialog
+                dialog.setOnDismissListener { temp.delete(); if (previewDialog === dialog) previewDialog = null }
                 dialog.show()
             } else {
                 temp.delete()

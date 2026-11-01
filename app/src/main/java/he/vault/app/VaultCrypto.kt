@@ -50,11 +50,12 @@ object VaultCrypto {
     private fun chunkAad(context: String, index: Long): ByteArray =
         context.toByteArray(Charsets.UTF_8) + ByteBuffer.allocate(8).putLong(index).array()
 
-    fun encryptStream(input: InputStream, output: OutputStream, keyBytes: ByteArray, context: String) {
+    fun encryptStream(input: InputStream, output: OutputStream, keyBytes: ByteArray, context: String): Long {
         val data = DataOutputStream(output)
         data.writeInt(STREAM_MAGIC)
         val buffer = ByteArray(CHUNK_SIZE)
         var chunk = 0L
+        var totalBytes = 0L
         while (true) {
             var count = 0
             while (count < buffer.size) {
@@ -71,11 +72,13 @@ object VaultCrypto {
             data.writeInt(count)
             data.write(nonce)
             data.write(cipher.doFinal(buffer, 0, count))
+            totalBytes += count
             chunk++
             if (count < buffer.size) break
         }
         data.writeInt(0)
         data.flush()
+        return totalBytes
     }
 
     fun decryptStream(input: InputStream, output: OutputStream, keyBytes: ByteArray, context: String) {
