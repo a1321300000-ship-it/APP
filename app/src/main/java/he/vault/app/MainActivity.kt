@@ -938,7 +938,7 @@ class MainActivity : Activity() {
         val stageTitle = title("מאתר את המכשיר...", 19f).apply { gravity = Gravity.CENTER; setTextColor(ACCENT) }
         layout.addView(stageTitle)
         addGap(layout, 5)
-        val stageDetail = body("מכ"ם מקומי סורק · הדמיה בלבד", 13f, WHITE).apply { gravity = Gravity.CENTER }
+        val stageDetail = body("מכ״ם מקומי סורק · הדמיה בלבד", 13f, WHITE).apply { gravity = Gravity.CENTER }
         layout.addView(stageDetail)
         addGap(layout, 8)
 
@@ -1070,7 +1070,7 @@ class MainActivity : Activity() {
                         countdown.visibility = View.GONE
                         stamp.visibility = View.GONE
                         stageTitle.text = "מאתר את המכשיר..."
-                        stageDetail.text = if (elapsed < 1300L) "מכ"ם מקומי סורק · הדמיה בלבד" else "המיקום אותר (מיקום מדומה)"
+                        stageDetail.text = if (elapsed < 1300L) "מכ״ם מקומי סורק · הדמיה בלבד" else "המיקום אותר (מיקום מדומה)"
                     }
                     elapsed < 5200L -> {
                         radar.visibility = View.GONE
