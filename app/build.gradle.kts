@@ -4,11 +4,11 @@ plugins {
 }
 
 val fixedKeystoreFile = rootProject.file("vault-release-key.jks")
+val storePasswordValue = System.getenv("VAULT_KEYSTORE_PASSWORD")
 val fixedSigningAvailable =
     fixedKeystoreFile.exists() &&
-    !System.getenv("VAULT_KEYSTORE_PASSWORD").isNullOrBlank() &&
-    !System.getenv("VAULT_KEY_ALIAS").isNullOrBlank() &&
-    !System.getenv("VAULT_KEY_PASSWORD").isNullOrBlank()
+    !storePasswordValue.isNullOrBlank() &&
+    !System.getenv("VAULT_KEY_ALIAS").isNullOrBlank()
 
 android {
     namespace = "he.vault.app"
@@ -18,17 +18,18 @@ android {
         applicationId = "he.vault.app"
         minSdk = 24
         targetSdk = 28
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     signingConfigs {
         if (fixedSigningAvailable) {
             create("vaultFixed") {
                 storeFile = fixedKeystoreFile
-                storePassword = System.getenv("VAULT_KEYSTORE_PASSWORD")
+                // The supplied keystore is PKCS12; its private-key password matches the store password.
+                storePassword = storePasswordValue
                 keyAlias = System.getenv("VAULT_KEY_ALIAS")
-                keyPassword = System.getenv("VAULT_KEY_PASSWORD")
+                keyPassword = storePasswordValue
             }
         }
     }
