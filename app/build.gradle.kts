@@ -22,6 +22,12 @@ android {
         versionName = "1.2"
     }
 
+    // This APK is distributed directly, not through Google Play.
+    // Keep the project's existing targetSdk behavior and suppress only Play's target-age policy lint.
+    lint {
+        disable += "ExpiredTargetSdkVersion"
+    }
+
     signingConfigs {
         if (fixedSigningAvailable) {
             create("vaultFixed") {
