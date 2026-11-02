@@ -43,6 +43,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.ExecutorService
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1056,10 +1057,18 @@ class MainActivity : Activity() {
                 if (p.length !in 4..8 || !p.all { it.isDigit() } || p != confirm.text.toString()) {
                     toast("הקוד אינו תקין או שהאימות אינו תואם")
                 } else confirmAction("אישור שינוי קוד", "העטיפה של הקוד המספרי תעודכן. קוד הקווים יישאר ללא שינוי.") {
-                    val key = masterKey ?: return@confirmAction
-                    val credentials = store.loadCredentials() ?: return@confirmAction
-                    store.saveCredentials(Credentials.replace(credentials, key, p, "pin"))
-                    toast("הקוד המספרי עודכן")
+                    val keyCopy = masterKey?.copyOf() ?: return@confirmAction
+                    runInBackground("מעדכן את עטיפת קוד ה־PIN...", {
+                        try {
+                            val credentials = store.loadCredentials() ?: throw IllegalStateException("פרטי הכניסה חסרים")
+                            store.saveCredentials(Credentials.replace(credentials, keyCopy, p, "pin"))
+                            true
+                        } finally {
+                            keyCopy.fill(0)
+                        }
+                    }, {
+                        toast("הקוד המספרי עודכן")
+                    })
                 }
             }.setNegativeButton("ביטול", null).show()
     }
@@ -1091,10 +1100,18 @@ class MainActivity : Activity() {
                 val pattern = accepted
                 if (pattern == null) toast("יש להשלים את אימות הקווים")
                 else confirmAction("אישור שינוי קוד", "העטיפה של קוד הקווים תעודכן. הקוד המספרי יישאר ללא שינוי.") {
-                    val key = masterKey ?: return@confirmAction
-                    val credentials = store.loadCredentials() ?: return@confirmAction
-                    store.saveCredentials(Credentials.replace(credentials, key, pattern, "pattern"))
-                    toast("קוד הקווים עודכן")
+                    val keyCopy = masterKey?.copyOf() ?: return@confirmAction
+                    runInBackground("מעדכן את עטיפת קוד הקווים...", {
+                        try {
+                            val credentials = store.loadCredentials() ?: throw IllegalStateException("פרטי הכניסה חסרים")
+                            store.saveCredentials(Credentials.replace(credentials, keyCopy, pattern, "pattern"))
+                            true
+                        } finally {
+                            keyCopy.fill(0)
+                        }
+                    }, {
+                        toast("קוד הקווים עודכן")
+                    })
                 }
             }.setNegativeButton("ביטול", null).show()
     }
@@ -1120,10 +1137,12 @@ class MainActivity : Activity() {
                     row.addView(body("תמונת ניסיון מוצפנת שמורה במכשיר", 13f, ACCENT))
                     val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_RTL }
                     buttons.addView(makeButton("צפייה בתמונה", {
-                        try {
-                            val bytes = store.readAttemptPhoto(event.id) ?: throw IllegalStateException("התמונה לא נמצאה")
-                            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        runInBackground("מפענח את תמונת הניסיון המוצפנת...", {
+                            val bytes = store.readAttemptPhoto(event.id)
+                                ?: throw IllegalStateException("התמונה לא נמצאה")
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                                 ?: throw IllegalStateException("לא ניתן לפענח את התמונה")
+                        }, { bitmap ->
                             val image = ImageView(this@MainActivity).apply {
                                 setImageBitmap(bitmap)
                                 adjustViewBounds = true
@@ -1134,10 +1153,11 @@ class MainActivity : Activity() {
                                 .setTitle("תמונת ניסיון")
                                 .setView(image)
                                 .setPositiveButton("סגירה", null)
+                                .setOnDismissListener { bitmap.recycle() }
                                 .show()
-                        } catch (e: Exception) {
-                            toast("לא ניתן להציג את התמונה: ${e.message ?: "שגיאה"}")
-                        }
+                        }, { error ->
+                            toast("לא ניתן להציג את התמונה: ${error.message ?: "שגיאה"}")
+                        })
                     }, true), LinearLayout.LayoutParams(0, dp(42), 1f))
                     buttons.addView(View(this), LinearLayout.LayoutParams(dp(7), 1))
                     buttons.addView(makeButton("מחיקת תמונה", {
@@ -1206,13 +1226,21 @@ class MainActivity : Activity() {
             preview = FrontCameraPreview(
                 this,
                 onPhoto = { bytes ->
-                    try {
-                        store.saveAttemptPhoto(attemptId, bytes)
-                        cameraStatus?.text = "התמונה שלך נשמרה מוצפנת במכשיר בלבד"
-                        cameraStatus?.setTextColor(ACCENT)
-                    } catch (e: Exception) {
-                        cameraStatus?.text = "שמירת התמונה נכשלה: ${e.message ?: "שגיאה"}"
-                        cameraStatus?.setTextColor(RED)
+                    VaultSession.ioExecutor.execute {
+                        try {
+                            store.saveAttemptPhoto(attemptId, bytes)
+                            runOnUiThread {
+                                cameraStatus?.text = "התמונה שלך נשמרה מוצפנת במכשיר בלבד"
+                                cameraStatus?.setTextColor(ACCENT)
+                            }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                cameraStatus?.text = "שמירת התמונה נכשלה: ${e.message ?: "שגיאה"}"
+                                cameraStatus?.setTextColor(RED)
+                            }
+                        } finally {
+                            bytes.fill(0)
+                        }
                     }
                 },
                 onUnavailable = { message ->
