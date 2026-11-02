@@ -2,9 +2,13 @@ package he.vault.app
 
 import android.Manifest
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.AlertDialog
 import android.app.Dialog
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -34,7 +38,11 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import java.io.File
+import java.util.concurrent.ExecutorService
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -43,9 +51,15 @@ import kotlin.random.Random
 class MainActivity : Activity() {
     private lateinit var store: VaultStore
     private lateinit var root: LinearLayout
-    private var masterKey: ByteArray? = null
-    private var items: MutableList<VaultItem> = mutableListOf()
+    private var masterKey: ByteArray?
+        get() = VaultSession.masterKey
+        set(value) { VaultSession.setMasterKey(value) }
+    private var items: MutableList<VaultItem>
+        get() = VaultSession.items
+        set(value) { VaultSession.items = value }
     private var needsRelock = false
+    private var internalPickerActive = false
+    private var unlockEyeView: WatchingEyeView? = null
     private var pendingAction: PendingAction? = null
     private var scareDialog: Dialog? = null
     private var previewDialog: AlertDialog? = null
@@ -54,6 +68,29 @@ class MainActivity : Activity() {
     private var cameraPermissionRequestInProgress = false
     private var activeRadarView: RadarView? = null
     private val handler = Handler(Looper.getMainLooper())
+    private val processLifecycleObserver = LifecycleEventObserver { _, event ->
+        when (event) {
+            Lifecycle.Event.ON_STOP -> {
+                if (!internalPickerActive && !cameraPermissionRequestInProgress) lockForSecurityBoundary()
+            }
+            Lifecycle.Event.ON_START -> {
+                if (needsRelock && !internalPickerActive) {
+                    handler.post {
+                        if (!isFinishing && needsRelock && !internalPickerActive && store.hasCredentials()) {
+                            needsRelock = false
+                            showUnlock()
+                        }
+                    }
+                }
+            }
+            else -> Unit
+        }
+    }
+    private val screenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_SCREEN_OFF) lockForSecurityBoundary()
+        }
+    }
     private var searchText = ""
     private var sortMode = "date"
 
@@ -71,13 +108,13 @@ class MainActivity : Activity() {
         private const val REQ_BACKUP = 103
         private const val REQ_RESTORE = 104
         private const val REQ_CAMERA = 105
-        private const val BG = 0xFF090D16.toInt()
-        private const val PANEL = 0xFF141D2B.toInt()
-        private const val PANEL_2 = 0xFF1C293A.toInt()
-        private const val ACCENT = 0xFF55D6BE.toInt()
-        private const val WHITE = 0xFFF4F7FB.toInt()
-        private const val MUTED = 0xFF9AA8B9.toInt()
-        private const val RED = 0xFFFF647C.toInt()
+        private const val BG = 0xFF050505.toInt()
+        private const val PANEL = 0xFF111315.toInt()
+        private const val PANEL_2 = 0xFF1A1D1D.toInt()
+        private const val ACCENT = 0xFFFF1744.toInt()
+        private const val WHITE = 0xFFE8ECE7.toInt()
+        private const val MUTED = 0xFFA7B0A5.toInt()
+        private const val RED = 0xFFFF1744.toInt()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,32 +123,46 @@ class MainActivity : Activity() {
         window.statusBarColor = BG
         window.navigationBarColor = BG
         store = VaultStore(this)
-        if (store.hasCredentials()) showUnlock() else showSetup()
+        ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
+        registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+        val retainedKey = masterKey
+        if (retainedKey != null) {
+            try {
+                items = store.loadIndex(retainedKey)
+                showHome()
+            } catch (_: Exception) {
+                lockForSecurityBoundary()
+                showUnlock()
+            }
+        } else if (store.hasCredentials()) showUnlock() else showSetup()
+    }
+
+    private fun lockForSecurityBoundary() {
+        if (::store.isInitialized && store.hasCredentials()) needsRelock = true
+        masterKey = null
+        items = mutableListOf()
+        previewDialog?.dismiss()
+        previewDialog = null
+        unlockEyeView = null
+        File(filesDir, "vault/.tmp").apply { mkdirs() }.listFiles()
+            ?.filter { it.name.startsWith("preview-") }
+            ?.forEach { it.delete() }
     }
 
     override fun onPause() {
         super.onPause()
-        masterKey?.fill(0)
-        masterKey = null
-        previewDialog?.dismiss()
-        previewDialog = null
-        items = mutableListOf()
-        File(filesDir, "vault/.tmp").apply { mkdirs() }.listFiles()
-            ?.filter { it.name.startsWith("preview-") }
-            ?.forEach { it.delete() }
-        if (store.hasCredentials() && !cameraPermissionRequestInProgress) needsRelock = true
+        // Activity pause is not a security boundary: dialogs, pickers and internal screens
+        // can temporarily pause this Activity without locking the process-wide session.
     }
 
     override fun onResume() {
         super.onResume()
-        if (needsRelock && store.hasCredentials() && !cameraPermissionRequestInProgress) {
-            needsRelock = false
-            showUnlock()
-        }
     }
 
     override fun onDestroy() {
-        masterKey?.fill(0)
+        ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)
+        try { unregisterReceiver(screenOffReceiver) } catch (_: Exception) { }
+        if (isFinishing) VaultSession.clear()
         activeRadarView?.stop()
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
@@ -136,22 +187,66 @@ class MainActivity : Activity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    private fun newRoot(): LinearLayout {
+    private fun newRoot(scrollable: Boolean = true): LinearLayout {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
             setBackgroundColor(BG)
-            setPadding(dp(20), dp(18), dp(20), dp(18))
+            setPadding(dp(16), dp(12), dp(16), dp(12))
         }
-        setContentView(root)
+        val screen: View = if (scrollable) {
+            ScrollView(this).apply {
+                isFillViewport = true
+                clipToPadding = false
+                addView(root, ScrollView.LayoutParams(
+                    ScrollView.LayoutParams.MATCH_PARENT,
+                    ScrollView.LayoutParams.WRAP_CONTENT
+                ))
+            }
+        } else root
+        screen.setOnApplyWindowInsetsListener { _, insets ->
+            var left = insets.systemWindowInsetLeft
+            var top = insets.systemWindowInsetTop
+            var right = insets.systemWindowInsetRight
+            var bottom = insets.systemWindowInsetBottom
+            if (Build.VERSION.SDK_INT >= 28) {
+                insets.displayCutout?.let { cutout ->
+                    left = maxOf(left, cutout.safeInsetLeft)
+                    top = maxOf(top, cutout.safeInsetTop)
+                    right = maxOf(right, cutout.safeInsetRight)
+                    bottom = maxOf(bottom, cutout.safeInsetBottom)
+                }
+            }
+            root.setPadding(dp(16) + left, dp(12) + top, dp(16) + right, dp(12) + bottom)
+            insets
+        }
+        setContentView(screen)
+        screen.requestApplyInsets()
         return root
+    }
+
+    private fun isLowRamDevice(): Boolean =
+        (getSystemService(ACTIVITY_SERVICE) as? ActivityManager)?.isLowRamDevice == true
+
+    private fun launchInternalPicker(intent: Intent, requestCode: Int) {
+        internalPickerActive = true
+        try {
+            startActivityForResult(intent, requestCode)
+        } catch (e: Exception) {
+            internalPickerActive = false
+            toast("לא ניתן לפתוח בורר קבצים: ${e.message ?: "שגיאה"}")
+        }
+    }
+
+    private fun showHomeOrUnlock() {
+        if (masterKey != null) showHome() else showUnlock()
     }
 
     private fun title(text: String, size: Float = 25f): TextView = TextView(this).apply {
         this.text = text
         textSize = size
         setTextColor(WHITE)
-        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        typeface = Typeface.MONOSPACE
         gravity = Gravity.RIGHT
         textDirection = View.TEXT_DIRECTION_RTL
     }
@@ -162,6 +257,7 @@ class MainActivity : Activity() {
         setTextColor(color)
         gravity = Gravity.RIGHT
         textDirection = View.TEXT_DIRECTION_RTL
+        typeface = Typeface.MONOSPACE
         setLineSpacing(dp(3).toFloat(), 1f)
     }
 
@@ -230,7 +326,7 @@ class MainActivity : Activity() {
             addGap(this, 5)
             addView(body("צייר לפחות 4 נקודות ברשת. לאחר מכן צייר שוב לאימות."))
             val patternView = PatternView(this@MainActivity).apply {
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(250))
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             }
             addView(patternView)
             val patternStatus = body("טרם הוגדר קוד קווים", 14f, ACCENT)
@@ -287,8 +383,14 @@ class MainActivity : Activity() {
         page.gravity = Gravity.CENTER_HORIZONTAL
         page.addView(title("כספת", 32f))
         addGap(page, 8)
-        page.addView(body("הזן אחד משני הקודים כדי לפתוח", 15f))
-        addGap(page, 22)
+        page.addView(body("המערכת מנטרת אותך... הזן קוד כדי להמשיך", 15f))
+        addGap(page, 8)
+        val eye = WatchingEyeView(this, !isLowRamDevice()).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        unlockEyeView = eye
+        page.addView(eye)
+        addGap(page, 10)
         val lockout = store.preferenceLong("lockout_until", 0L)
         if (System.currentTimeMillis() < lockout) {
             val seconds = ((lockout - System.currentTimeMillis()) / 1000L).coerceAtLeast(1L)
@@ -312,7 +414,7 @@ class MainActivity : Activity() {
         addGap(patternCard, 6)
         patternCard.addView(body("צייר את הקוד האישי שלך ברשת"))
         val patternView = PatternView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(220))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         }
         patternCard.addView(patternView)
         patternView.onPatternComplete = { pattern ->
@@ -420,7 +522,7 @@ class MainActivity : Activity() {
 
     private fun showHome() {
         masterKey ?: run { showUnlock(); return }
-        val page = newRoot()
+        val page = newRoot(false)
         page.addView(title("הכספת שלך", 28f))
         addGap(page, 4)
         page.addView(body("${items.size} קבצים שמורים ומוצפנים במכשיר", 14f))
@@ -456,6 +558,7 @@ class MainActivity : Activity() {
         scroller.addView(list)
         page.addView(scroller, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
+        var visibleItemCount = 20
         fun renderList() {
             list.removeAllViews()
             val query = search.text.toString().trim()
@@ -469,8 +572,21 @@ class MainActivity : Activity() {
                 list.addView(body(if (items.isEmpty()) "הכספת עדיין ריקה. לחץ על 'הכנסת קבצים' כדי להתחיל." else "לא נמצאו קבצים מתאימים.", 15f))
                 return
             }
-            sorted.forEach { item ->
+            sorted.take(visibleItemCount).forEach { item ->
                 val itemCard = card()
+                val cachedThumb = File(File(filesDir, "vault/thumbnails"), "${item.id}.jpg")
+                if (item.mime.startsWith("image/") && cachedThumb.isFile) {
+                    val thumb = BitmapFactory.decodeFile(cachedThumb.absolutePath)
+                    if (thumb != null) {
+                        itemCard.addView(ImageView(this).apply {
+                            setImageBitmap(thumb)
+                            adjustViewBounds = true
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                            layoutParams = LinearLayout.LayoutParams(dp(72), dp(72))
+                        })
+                        addGap(itemCard, 5)
+                    }
+                }
                 itemCard.addView(title(item.name, 16f))
                 addGap(itemCard, 4)
                 itemCard.addView(body("${item.mime}  ·  ${formatSize(item.size)}", 12f))
@@ -486,10 +602,16 @@ class MainActivity : Activity() {
                 lp.bottomMargin = dp(9)
                 list.addView(itemCard, lp)
             }
+            if (visibleItemCount < sorted.size) {
+                list.addView(makeButton("הצג עוד קבצים (${sorted.size - visibleItemCount} נותרו)", {
+                    visibleItemCount = (visibleItemCount + 20).coerceAtMost(sorted.size)
+                    renderList()
+                }))
+            }
         }
         search.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { searchText = s?.toString() ?: ""; renderList() }
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { searchText = s?.toString() ?: ""; visibleItemCount = 20; renderList() }
             override fun afterTextChanged(s: android.text.Editable?) {}
         })
         renderList()
@@ -502,7 +624,7 @@ class MainActivity : Activity() {
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }
-        startActivityForResult(intent, REQ_IMPORT)
+        launchInternalPicker(intent, REQ_IMPORT)
     }
 
     private fun chooseExport(item: VaultItem) {
@@ -512,7 +634,7 @@ class MainActivity : Activity() {
             type = item.mime.ifBlank { "application/octet-stream" }
             putExtra(Intent.EXTRA_TITLE, item.name)
         }
-        startActivityForResult(intent, REQ_EXPORT)
+        launchInternalPicker(intent, REQ_EXPORT)
     }
 
     private fun chooseBackup() {
@@ -522,7 +644,7 @@ class MainActivity : Activity() {
             type = "application/octet-stream"
             putExtra(Intent.EXTRA_TITLE, "vault-backup.vault")
         }
-        startActivityForResult(intent, REQ_BACKUP)
+        launchInternalPicker(intent, REQ_BACKUP)
     }
 
     private fun chooseRestore() {
@@ -531,15 +653,16 @@ class MainActivity : Activity() {
             type = "*/*"
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        startActivityForResult(intent, REQ_RESTORE)
+        launchInternalPicker(intent, REQ_RESTORE)
     }
 
     @Deprecated("Deprecated by the platform; retained for API 24 compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        internalPickerActive = false
         if (requestCode == REQ_RESTORE) {
             if (resultCode == RESULT_OK && data?.data != null) showRestoreCodeDialog(data.data!!)
-            else showUnlock()
+            else showHomeOrUnlock()
             return
         }
         if (requestCode == REQ_IMPORT) {
@@ -549,7 +672,7 @@ class MainActivity : Activity() {
                 if (uris.isEmpty()) data.data?.let { uris.add(it) }
             }
             pendingAction = if (uris.isNotEmpty()) PendingAction.Import(uris) else null
-            showUnlock()
+            if (masterKey != null) performPendingOrShowHome() else showUnlock()
             return
         }
         if (requestCode == REQ_EXPORT) {
@@ -557,13 +680,13 @@ class MainActivity : Activity() {
             if (resultCode == RESULT_OK && data?.data != null && previous is PendingAction.WaitExport) {
                 pendingAction = PendingAction.Export(previous.item, data.data!!)
             } else pendingAction = null
-            showUnlock()
+            if (masterKey != null) performPendingOrShowHome() else showUnlock()
             return
         }
         if (requestCode == REQ_BACKUP) {
             if (resultCode == RESULT_OK && data?.data != null) pendingAction = PendingAction.Backup(data.data!!)
             else pendingAction = null
-            showUnlock()
+            if (masterKey != null) performPendingOrShowHome() else showUnlock()
         }
     }
 
@@ -766,7 +889,7 @@ class MainActivity : Activity() {
     private fun changePatternDialog() {
         val box = card()
         box.addView(body("צייר קוד קווים חדש ולאחר מכן צייר אותו שוב לאימות."))
-        val patternView = PatternView(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(240)) }
+        val patternView = PatternView(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT) }
         box.addView(patternView)
         val status = body("צייר לפחות 4 נקודות", 14f, ACCENT)
         box.addView(status)
