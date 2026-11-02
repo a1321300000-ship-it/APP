@@ -22,7 +22,6 @@ class WatchingEyeView(
 
     init {
         contentDescription = "עין אדומה צופה"
-        isImportantForAccessibility = true
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
