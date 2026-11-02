@@ -132,13 +132,16 @@ class MainActivity : Activity() {
         registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
         val retainedKey = masterKey
         if (retainedKey != null) {
-            try {
-                items = store.loadIndex(retainedKey)
+            val keyCopy = retainedKey.copyOf()
+            runInBackground("משחזר את מצב הכספת לאחר שינוי המסך...", {
+                try { store.loadIndex(keyCopy) } finally { keyCopy.fill(0) }
+            }, { loadedItems ->
+                items = loadedItems
                 showHome()
-            } catch (_: Exception) {
+            }, {
                 lockForSecurityBoundary()
                 showUnlock()
-            }
+            })
         } else if (store.hasCredentials()) showUnlock() else showSetup()
     }
 
@@ -807,17 +810,17 @@ class MainActivity : Activity() {
             return
         }
         val uri = uris[index]
-        val name = queryDisplayName(uri)
-        val mime = contentResolver.getType(uri) ?: "application/octet-stream"
         val keyCopy = key.copyOf()
         val currentItems = items.toList()
-        runInBackground("מצפין ומעתיק את הקובץ: $name", {
+        runInBackground("מצפין ומעתיק את הקובץ שבחרת...", {
             try {
+                val name = queryDisplayName(uri)
+                val mime = contentResolver.getType(uri) ?: "application/octet-stream"
                 val input = contentResolver.openInputStream(uri) ?: throw IllegalStateException("לא ניתן לקרוא את הקובץ")
                 val item = store.importFile(input, name, mime, keyCopy)
                 try {
                     store.saveIndex(currentItems + item, keyCopy)
-                    item
+                    Pair(item, name)
                 } catch (error: Exception) {
                     store.delete(item)
                     throw error
@@ -825,7 +828,9 @@ class MainActivity : Activity() {
             } finally {
                 keyCopy.fill(0)
             }
-        }, { item ->
+        }, { imported ->
+            val item = imported.first
+            val name = imported.second
             items.add(item)
             confirmAction(
                 "מחיקת הקובץ המקורי",
@@ -928,10 +933,6 @@ class MainActivity : Activity() {
             .setNegativeButton("ביטול") { _, _ -> showUnlock() }
             .setOnCancelListener { showUnlock() }
             .show()
-    }
-
-    private fun saveIndexAndRefresh() {
-        masterKey?.let { store.saveIndex(items, it) }
     }
 
     private fun deleteItem(item: VaultItem) {
@@ -1167,8 +1168,12 @@ class MainActivity : Activity() {
                     buttons.addView(View(this), LinearLayout.LayoutParams(dp(7), 1))
                     buttons.addView(makeButton("מחיקת תמונה", {
                         confirmAction("מחיקת תמונת ניסיון", "התמונה המוצפנת תימחק לצמיתות מהאחסון הפרטי.") {
-                            store.deleteAttemptPhoto(event.id)
-                            showHistory()
+                            runInBackground("מוחק את תמונת הניסיון...", {
+                                store.deleteAttemptPhoto(event.id)
+                                true
+                            }, {
+                                showHistory()
+                            })
                         }
                     }), LinearLayout.LayoutParams(0, dp(42), 1f))
                     row.addView(buttons)
@@ -1185,9 +1190,13 @@ class MainActivity : Activity() {
         addGap(page, 10)
         page.addView(makeButton("מחיקת יומן הניסיונות והתמונות", {
             confirmAction("מחיקת יומן", "כל רשומות הניסיונות וכל תמונות הניסיון המוצפנות יימחקו לצמיתות.") {
-                store.clearAttemptHistory()
-                toast("היומן והתמונות נמחקו")
-                showHistory()
+                runInBackground("מוחק את יומן הניסיונות ואת התמונות...", {
+                    store.clearAttemptHistory()
+                    true
+                }, {
+                    toast("היומן והתמונות נמחקו")
+                    showHistory()
+                })
             }
         }))
         addGap(page, 8)
