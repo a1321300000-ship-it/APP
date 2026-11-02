@@ -70,6 +70,11 @@ jobs:
         shell: bash
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/release/app-release.apk | grep -F "package: name='he.vault.app' versionCode='4' versionName='1.3'"
+          if "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions app/build/outputs/apk/release/app-release.apk | grep -q "android.permission.INTERNET"; then
+            echo "Unexpected INTERNET permission found in APK."
+            exit 1
+          fi
           cp app/build/outputs/apk/release/app-release.apk vault.apk
           test -s vault.apk
 
@@ -80,21 +85,27 @@ jobs:
         shell: bash
         run: |
           if gh release view vault-latest >/dev/null 2>&1; then
-            gh release edit vault-latest --title "כספת – הגרסה העדכנית 1.2" --notes "הורדת הגרסה העדכנית של אפליקציית כספת."
+            gh release edit vault-latest --title "כספת – הגרסה העדכנית 1.3" --notes "הורדת הגרסה העדכנית של אפליקציית כספת."
           else
-            gh release create vault-latest vault.apk --target "$GITHUB_SHA" --title "כספת – הגרסה העדכנית 1.2" --notes "הורדת הגרסה העדכנית של אפליקציית כספת." --latest
+            gh release create vault-latest vault.apk --target "$GITHUB_SHA" --title "כספת – הגרסה העדכנית 1.3" --notes "הורדת הגרסה העדכנית של אפליקציית כספת." --latest
           fi
           gh release upload vault-latest vault.apk --clobber
           gh release view vault-latest --json assets --jq '.assets[] | select(.name == "vault.apk") | .size' | grep -Eq '^[1-9][0-9]*$'
           APK_URL="https://github.com/a1321300000-ship-it/APP/releases/download/vault-latest/vault.apk"
+          LATEST_URL="https://github.com/a1321300000-ship-it/APP/releases/latest/download/vault.apk"
           curl --location --fail --silent --show-error "$APK_URL" --output "$RUNNER_TEMP/vault-download-check.apk"
           test -s "$RUNNER_TEMP/vault-download-check.apk"
+          cmp --silent vault.apk "$RUNNER_TEMP/vault-download-check.apk"
+          curl --location --fail --silent --show-error "$LATEST_URL" --output "$RUNNER_TEMP/vault-latest-check.apk"
+          test -s "$RUNNER_TEMP/vault-latest-check.apk"
+          cmp --silent vault.apk "$RUNNER_TEMP/vault-latest-check.apk"
           echo "Verified downloadable vault.apk ($(stat -c%s "$RUNNER_TEMP/vault-download-check.apk") bytes): $APK_URL"
+          echo "Verified latest-download alias: $LATEST_URL"
 
       - name: Upload debug APK fallback
         uses: actions/upload-artifact@v4
         with:
-          name: vault-debug-apk-v1.2
+          name: vault-debug-apk-v1.3
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
@@ -103,7 +114,7 @@ jobs:
         if: steps.signing.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: vault-release-apk-v1.2
+          name: vault-release-apk-v1.3
           path: vault.apk
           if-no-files-found: error
           retention-days: 30
