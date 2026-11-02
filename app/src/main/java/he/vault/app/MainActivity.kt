@@ -354,7 +354,7 @@ class MainActivity : Activity() {
         background = GradientDrawable().apply {
             setColor(if (filled) ACCENT else PANEL_2)
             cornerRadius = dp(13).toFloat()
-            if (!filled) setStroke(dp(1), 0xFF2A394D.toInt())
+            if (!filled) setStroke(dp(1), 0x99FF1744.toInt())
         }
         setPadding(dp(12), dp(8), dp(12), dp(8))
         setOnClickListener { onClick() }
@@ -377,7 +377,11 @@ class MainActivity : Activity() {
     private fun card(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         layoutDirection = View.LAYOUT_DIRECTION_RTL
-        background = GradientDrawable().apply { setColor(PANEL); cornerRadius = dp(18).toFloat(); setStroke(dp(1), 0xFF202D3F.toInt()) }
+        background = GradientDrawable().apply {
+            setColor(PANEL)
+            cornerRadius = dp(18).toFloat()
+            setStroke(dp(1), 0x663F252B.toInt())
+        }
         setPadding(dp(16), dp(14), dp(16), dp(14))
     }
 

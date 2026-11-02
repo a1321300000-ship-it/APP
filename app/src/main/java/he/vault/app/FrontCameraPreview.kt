@@ -74,7 +74,10 @@ class FrontCameraPreview(
             current.takePicture(null, null) { data, activeCamera ->
                 photoTaken = true
                 if (data != null && data.isNotEmpty()) onPhoto(data)
-                try { activeCamera.startPreview() } catch (_: Exception) { }
+            else onUnavailable("המצלמה לא החזירה תמונה")
+            try { activeCamera.stopPreview() } catch (_: Exception) { }
+            try { activeCamera.release() } catch (_: Exception) { }
+            if (camera === activeCamera) camera = null
             }
         } catch (e: Exception) {
             onUnavailable("לא ניתן לצלם תמונת ניסיון: ${e.message ?: "שגיאה"}")
