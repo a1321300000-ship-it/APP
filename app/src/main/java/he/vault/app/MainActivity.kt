@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
@@ -93,6 +94,8 @@ class MainActivity : Activity() {
     }
     private var searchText = ""
     private var sortMode = "date"
+
+    private data class PreviewResult(val temp: File, val bitmap: Bitmap? = null, val text: String? = null)
 
     private sealed class PendingAction {
         data class Import(val uris: List<Uri>) : PendingAction()
@@ -242,6 +245,87 @@ class MainActivity : Activity() {
         if (masterKey != null) showHome() else showUnlock()
     }
 
+    private fun <T> runInBackground(
+        message: String,
+        work: () -> T,
+        onSuccess: (T) -> Unit,
+        onError: (Exception) -> Unit = { error -> toast("$message: ${error.message ?: "שגיאה"}") }
+    ) {
+        if (isFinishing || isDestroyed) return
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(24), dp(20), dp(24), dp(20))
+            addView(ProgressBar(this@MainActivity).apply { isIndeterminate = true })
+            addView(body(message, 14f, MUTED).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, dp(12), 0, 0)
+            })
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("המערכת עובדת")
+            .setView(panel)
+            .setCancelable(false)
+            .create()
+        dialog.show()
+        VaultSession.ioExecutor.execute {
+            try {
+                val result = work()
+                runOnUiThread {
+                    if (dialog.isShowing) dialog.dismiss()
+                    if (!isFinishing && !isDestroyed) onSuccess(result)
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    if (dialog.isShowing) dialog.dismiss()
+                    if (!isFinishing && !isDestroyed) onError(error)
+                }
+            }
+        }
+    }
+
+    private fun decodeSampledBitmap(file: File, maxSide: Int): Bitmap {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "קובץ התמונה אינו תקין" }
+        var sample = 1
+        while (bounds.outWidth / sample > maxSide * 2 || bounds.outHeight / sample > maxSide * 2) {
+            sample *= 2
+        }
+        val options = BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
+        return BitmapFactory.decodeFile(file.absolutePath, options)
+            ?: throw IllegalStateException("לא ניתן לפענח את התמונה")
+    }
+
+    private fun cacheThumbnail(item: VaultItem, decryptedFile: File) {
+        val directory = File(filesDir, "vault/thumbnails")
+        if (!directory.exists() && !directory.mkdirs()) return
+        val target = File(directory, "${item.id}.jpg")
+        if (target.isFile && target.length() > 0L) return
+        val bitmap = decodeSampledBitmap(decryptedFile, 320)
+        try {
+            FileOutputStream(target).use { output ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 78, output)
+                output.flush()
+            }
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun readTextPreview(file: File, maxChars: Int = 400_000): String {
+        val result = StringBuilder()
+        file.inputStream().bufferedReader().use { reader ->
+            val buffer = CharArray(8192)
+            while (result.length < maxChars) {
+                val count = reader.read(buffer, 0, minOf(buffer.size, maxChars - result.length))
+                if (count <= 0) break
+                result.append(buffer, 0, count)
+            }
+        }
+        return result.toString()
+    }
+
     private fun title(text: String, size: Float = 25f): TextView = TextView(this).apply {
         this.text = text
         textSize = size
@@ -361,13 +445,22 @@ class MainActivity : Activity() {
                     p != cp -> toast("הקודים המספריים אינם תואמים")
                     confirmedPattern == null -> toast("יש להגדיר ולאמת קוד קווים")
                     else -> {
-                        val master = VaultCrypto.randomBytes(32)
-                        store.saveCredentials(Credentials.create(master, p, confirmedPattern!!))
-                        masterKey = master
-                        items = mutableListOf()
-                        store.saveIndex(items, master)
-                        store.resetConsecutiveFailures()
-                        showHome()
+                        runInBackground("יוצר כספת מוצפנת ושומר את הקודים...", {
+                            val master = VaultCrypto.randomBytes(32)
+                            try {
+                                store.saveCredentials(Credentials.create(master, p, confirmedPattern!!))
+                                store.saveIndex(emptyList(), master)
+                                store.resetConsecutiveFailures()
+                                master
+                            } catch (error: Exception) {
+                                master.fill(0)
+                                throw error
+                            }
+                        }, { master ->
+                            masterKey = master
+                            items = mutableListOf()
+                            showHome()
+                        })
                     }
                 }
             }, true))
@@ -436,41 +529,51 @@ class MainActivity : Activity() {
             toast("יש להזין קוד")
             return
         }
-        val credentials = store.loadCredentials()
-        val master = credentials?.let { Credentials.unlock(it, code, type) }
-        if (master == null) {
-            val failure = store.recordFailure()
-            val consecutive = failure.consecutive
-            val threshold = store.preferenceInt("scare_threshold", 2).coerceIn(1, 5)
-            if (store.preferenceBoolean("scare_enabled", true) && consecutive % threshold == 0) {
-                requestScare(failure.attemptId)
+        runInBackground("מאמת את הקוד ומפענח את רשימת הקבצים...", {
+            val credentials = store.loadCredentials()
+            val master = credentials?.let { Credentials.unlock(it, code, type) }
+            if (master == null) Pair<ByteArray?, MutableList<VaultItem>?>(null, null)
+            else try {
+                Pair<ByteArray?, MutableList<VaultItem>?>(master, store.loadIndex(master))
+            } catch (error: Exception) {
+                master.fill(0)
+                throw error
             }
-            if (consecutive >= 5) {
-                val level = store.preferenceInt("lockout_level", 0).coerceIn(0, 6)
-                val duration = 30_000L * (1L shl level)
-                store.setPreferenceLong("lockout_until", System.currentTimeMillis() + duration)
-                store.setPreferenceInt("lockout_level", (level + 1).coerceAtMost(6))
-                store.resetConsecutiveFailures()
-                handler.postDelayed({ if (!isFinishing && scareDialog?.isShowing != true) showUnlock() }, 500)
-                toast("יותר מדי ניסיונות. הכספת ננעלה לזמן קצר.")
-            } else {
-                toast("קוד שגוי")
+        }, { result ->
+            val master = result.first
+            if (master == null) {
+                val failure = store.recordFailure()
+                val consecutive = failure.consecutive
+                val threshold = store.preferenceInt("scare_threshold", 2).coerceIn(1, 5)
+                if (store.preferenceBoolean("scare_enabled", true) && consecutive % threshold == 0) {
+                    requestScare(failure.attemptId)
+                }
+                if (consecutive >= 5) {
+                    val level = store.preferenceInt("lockout_level", 0).coerceIn(0, 6)
+                    val duration = 30_000L * (1L shl level)
+                    store.setPreferenceLong("lockout_until", System.currentTimeMillis() + duration)
+                    store.setPreferenceInt("lockout_level", (level + 1).coerceAtMost(6))
+                    store.resetConsecutiveFailures()
+                    handler.postDelayed({ if (!isFinishing && scareDialog?.isShowing != true) showUnlock() }, 500)
+                    toast("יותר מדי ניסיונות. הכספת ננעלה לזמן קצר.")
+                } else {
+                    toast("קוד שגוי")
+                }
+                return@runInBackground
             }
-            return
-        }
-        store.resetConsecutiveFailures()
-        store.setPreferenceLong("lockout_until", 0L)
-        masterKey?.fill(0)
-        masterKey = master
-        try {
-            items = store.loadIndex(master)
-            performPendingOrShowHome()
-        } catch (e: Exception) {
-            master.fill(0)
-            masterKey = null
-            toast("לא ניתן לפתוח את הכספת: ${e.message ?: "נתונים פגומים"}")
+            store.resetConsecutiveFailures()
+            store.setPreferenceLong("lockout_until", 0L)
+            masterKey = master
+            items = result.second ?: mutableListOf()
+            val eye = unlockEyeView
+            unlockEyeView = null
+            if (eye != null) eye.closeEye {
+                if (!isFinishing && masterKey != null) performPendingOrShowHome()
+            } else performPendingOrShowHome()
+        }, { error ->
+            toast("לא ניתן לפתוח את הכספת: ${error.message ?: "נתונים פגומים"}")
             showUnlock()
-        }
+        })
     }
 
     private fun requestScare(attemptId: String) {
@@ -693,33 +796,48 @@ class MainActivity : Activity() {
     private fun importUris(uris: List<Uri>, index: Int) {
         val key = masterKey ?: run { showUnlock(); return }
         if (index >= uris.size) {
-            saveIndexAndRefresh()
             toast("הייבוא הסתיים")
             showHome()
             return
         }
         val uri = uris[index]
-        try {
-            val name = queryDisplayName(uri)
-            val mime = contentResolver.getType(uri) ?: "application/octet-stream"
-            val input = contentResolver.openInputStream(uri) ?: throw IllegalStateException("לא ניתן לקרוא את הקובץ")
-            val item = store.importFile(input, name, mime, key)
+        val name = queryDisplayName(uri)
+        val mime = contentResolver.getType(uri) ?: "application/octet-stream"
+        val keyCopy = key.copyOf()
+        val currentItems = items.toList()
+        runInBackground("מצפין ומעתיק את הקובץ: $name", {
+            try {
+                val input = contentResolver.openInputStream(uri) ?: throw IllegalStateException("לא ניתן לקרוא את הקובץ")
+                val item = store.importFile(input, name, mime, keyCopy)
+                try {
+                    store.saveIndex(currentItems + item, keyCopy)
+                    item
+                } catch (error: Exception) {
+                    store.delete(item)
+                    throw error
+                }
+            } finally {
+                keyCopy.fill(0)
+            }
+        }, { item ->
             items.add(item)
-            store.saveIndex(items, key)
             confirmAction(
                 "מחיקת הקובץ המקורי",
                 "הקובץ '$name' הועתק לכספת. האם לנסות למחוק את המקור מהמכשיר? ייתכן שמערכת הקבצים לא תאפשר זאת.",
                 {
-                    val deleted = store.deleteOriginal(contentResolver, uri)
-                    toast(if (deleted) "הקובץ המקורי נמחק" else "המערכת לא אפשרה למחוק את המקור")
-                    importUris(uris, index + 1)
+                    runInBackground("מנסה למחוק את המקור...", {
+                        store.deleteOriginal(contentResolver, uri)
+                    }, { deleted ->
+                        toast(if (deleted) "הקובץ המקורי נמחק" else "המערכת לא אפשרה למחוק את המקור")
+                        importUris(uris, index + 1)
+                    })
                 },
                 { importUris(uris, index + 1) }
             )
-        } catch (e: Exception) {
-            toast("ייבוא נכשל: ${e.message ?: "שגיאה"}")
+        }, { error ->
+            toast("ייבוא נכשל: ${error.message ?: "שגיאה"}")
             importUris(uris, index + 1)
-        }
+        })
     }
 
     private fun queryDisplayName(uri: Uri): String {
@@ -733,26 +851,41 @@ class MainActivity : Activity() {
     }
 
     private fun performExport(item: VaultItem, uri: Uri) {
-        val key = masterKey ?: run { showUnlock(); return }
-        try {
-            val output = contentResolver.openOutputStream(uri, "w") ?: throw IllegalStateException("לא ניתן לפתוח את יעד השמירה")
-            store.exportFile(item, output, key)
+        val keyCopy = masterKey?.copyOf() ?: run { showUnlock(); return }
+        runInBackground("מפענח וכותב את הקובץ ליעד שבחרת...", {
+            try {
+                val output = contentResolver.openOutputStream(uri, "w")
+                    ?: throw IllegalStateException("לא ניתן לפתוח את יעד השמירה")
+                store.exportFile(item, output, keyCopy)
+                true
+            } finally {
+                keyCopy.fill(0)
+            }
+        }, {
             toast("הקובץ יוצא בהצלחה")
-        } catch (e: Exception) {
-            toast("ההוצאה נכשלה: ${e.message ?: "שגיאה"}")
-        }
-        showHome()
+            showHome()
+        }, { error ->
+            toast("ההוצאה נכשלה: ${error.message ?: "שגיאה"}")
+            showHome()
+        })
     }
 
     private fun performBackup(uri: Uri) {
-        val key = masterKey ?: run { showUnlock(); return }
-        try {
-            store.writeBackup(uri, contentResolver, key)
+        val keyCopy = masterKey?.copyOf() ?: run { showUnlock(); return }
+        runInBackground("יוצר גיבוי מוצפן...", {
+            try {
+                store.writeBackup(uri, contentResolver, keyCopy)
+                true
+            } finally {
+                keyCopy.fill(0)
+            }
+        }, {
             toast("הגיבוי המוצפן נוצר בהצלחה")
-        } catch (e: Exception) {
-            toast("יצירת הגיבוי נכשלה: ${e.message ?: "שגיאה"}")
-        }
-        showHome()
+            showHome()
+        }, { error ->
+            toast("יצירת הגיבוי נכשלה: ${error.message ?: "שגיאה"}")
+            showHome()
+        })
     }
 
     private fun showRestoreCodeDialog(uri: Uri) {
@@ -766,17 +899,25 @@ class MainActivity : Activity() {
             .setTitle("פתיחת הגיבוי")
             .setView(panel)
             .setPositiveButton("אישור") { _, _ ->
-                try {
-                    val restored = store.restoreBackup(uri, contentResolver, code.text.toString())
-                    masterKey = restored
-                    items = store.loadIndex(restored)
+                val restoreCode = code.text.toString()
+                runInBackground("מפענח ובודק את הגיבוי...", {
+                    val restored = store.restoreBackup(uri, contentResolver, restoreCode)
+                    try {
+                        Pair(restored, store.loadIndex(restored))
+                    } catch (error: Exception) {
+                        restored.fill(0)
+                        throw error
+                    }
+                }, { restored ->
+                    masterKey = restored.first
+                    items = restored.second
                     store.resetConsecutiveFailures()
                     toast("הגיבוי שוחזר בהצלחה")
                     showHome()
-                } catch (e: Exception) {
-                    toast("השחזור נכשל: ${e.message ?: "קוד שגוי או קובץ פגום"}")
-                    showUnlock()
-                }
+                }, { error ->
+                    toast("השחזור נכשל: ${error.message ?: "קוד שגוי או קובץ פגום"}")
+                    showHomeOrUnlock()
+                })
             }
             .setNegativeButton("ביטול") { _, _ -> showUnlock() }
             .setOnCancelListener { showUnlock() }
@@ -788,48 +929,85 @@ class MainActivity : Activity() {
     }
 
     private fun deleteItem(item: VaultItem) {
-        store.delete(item)
-        items.removeAll { it.id == item.id }
-        saveIndexAndRefresh()
-        toast("הקובץ נמחק מהכספת")
-        showHome()
+        val keyCopy = masterKey?.copyOf() ?: run { showUnlock(); return }
+        val updatedItems = items.filterNot { it.id == item.id }
+        runInBackground("מוחק את הקובץ ומעדכן את הרשימה המוצפנת...", {
+            try {
+                store.delete(item)
+                store.saveIndex(updatedItems, keyCopy)
+                File(File(filesDir, "vault/thumbnails"), "${item.id}.jpg").delete()
+                true
+            } finally {
+                keyCopy.fill(0)
+            }
+        }, {
+            items = updatedItems.toMutableList()
+            toast("הקובץ נמחק מהכספת")
+            showHome()
+        })
     }
 
     private fun previewItem(item: VaultItem) {
-        val key = masterKey ?: run { showUnlock(); return }
+        val keyCopy = masterKey?.copyOf() ?: run { showUnlock(); return }
         val temp = File(File(filesDir, "vault/.tmp").apply { mkdirs() }, "preview-${item.id}")
-        try {
-            store.decryptToFile(item, temp, key)
-            if (item.mime.startsWith("image/")) {
-                val bitmap = BitmapFactory.decodeFile(temp.absolutePath)
-                if (bitmap == null) throw IllegalStateException("לא ניתן להציג את התמונה")
-                val image = ImageView(this).apply {
-                    setImageBitmap(bitmap)
-                    adjustViewBounds = true
-                    scaleType = ImageView.ScaleType.FIT_CENTER
-                    setPadding(dp(8), dp(8), dp(8), dp(8))
+        runInBackground("מפענח את הקובץ לתצוגה זמנית ומאובטחת...", {
+            try {
+                store.decryptToFile(item, temp, keyCopy)
+                when {
+                    item.mime.startsWith("image/") -> {
+                        cacheThumbnail(item, temp)
+                        PreviewResult(temp, bitmap = decodeSampledBitmap(temp, 1400))
+                    }
+                    item.mime.startsWith("text/") || item.mime.contains("json") || item.mime.contains("xml") -> {
+                        PreviewResult(temp, text = readTextPreview(temp))
+                    }
+                    else -> PreviewResult(temp)
                 }
-                val dialog = AlertDialog.Builder(this).setTitle(item.name).setView(image).setPositiveButton("סגירה", null).create()
-                previewDialog = dialog
-                dialog.setOnDismissListener { temp.delete(); if (previewDialog === dialog) previewDialog = null }
-                dialog.show()
-            } else if (item.mime.startsWith("text/") || item.mime.contains("json") || item.mime.contains("xml")) {
-                val text = temp.inputStream().bufferedReader().use { it.readText().take(400_000) }
-                val scroll = ScrollView(this)
-                val tv = body(text, 14f, WHITE).apply { setPadding(dp(14), dp(14), dp(14), dp(14)); textDirection = View.TEXT_DIRECTION_FIRST_STRONG }
-                scroll.addView(tv)
-                val dialog = AlertDialog.Builder(this).setTitle(item.name).setView(scroll).setPositiveButton("סגירה", null).create()
-                previewDialog = dialog
-                dialog.setOnDismissListener { temp.delete(); if (previewDialog === dialog) previewDialog = null }
-                dialog.show()
-            } else {
+            } catch (error: Exception) {
                 temp.delete()
-                toast("סוג הקובץ הזה ניתן להוצאה בלבד")
+                throw error
+            } finally {
+                keyCopy.fill(0)
             }
-        } catch (e: Exception) {
+        }, { result ->
+            when {
+                result.bitmap != null -> {
+                    val image = ImageView(this).apply {
+                        setImageBitmap(result.bitmap)
+                        adjustViewBounds = true
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                        setPadding(dp(8), dp(8), dp(8), dp(8))
+                    }
+                    val dialog = AlertDialog.Builder(this).setTitle(item.name).setView(image).setPositiveButton("סגירה", null).create()
+                    previewDialog = dialog
+                    dialog.setOnDismissListener {
+                        result.temp.delete()
+                        result.bitmap.recycle()
+                        if (previewDialog === dialog) previewDialog = null
+                    }
+                    dialog.show()
+                }
+                result.text != null -> {
+                    val scroll = ScrollView(this)
+                    val tv = body(result.text, 14f, WHITE).apply {
+                        setPadding(dp(14), dp(14), dp(14), dp(14))
+                        textDirection = View.TEXT_DIRECTION_FIRST_STRONG
+                    }
+                    scroll.addView(tv)
+                    val dialog = AlertDialog.Builder(this).setTitle(item.name).setView(scroll).setPositiveButton("סגירה", null).create()
+                    previewDialog = dialog
+                    dialog.setOnDismissListener { result.temp.delete(); if (previewDialog === dialog) previewDialog = null }
+                    dialog.show()
+                }
+                else -> {
+                    result.temp.delete()
+                    toast("סוג הקובץ הזה ניתן להוצאה בלבד")
+                }
+            }
+        }, { error ->
             temp.delete()
-            toast("לא ניתן לפתוח את הקובץ: ${e.message ?: "שגיאה"}")
-        }
+            toast("לא ניתן לפתוח את הקובץ: ${error.message ?: "שגיאה"}")
+        })
     }
 
     private fun showSettings() {
@@ -978,7 +1156,7 @@ class MainActivity : Activity() {
             }
         }
         scroll.addView(content)
-        page.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        page.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         addGap(page, 10)
         page.addView(makeButton("מחיקת יומן הניסיונות והתמונות", {
             confirmAction("מחיקת יומן", "כל רשומות הניסיונות וכל תמונות הניסיון המוצפנות יימחקו לצמיתות.") {
