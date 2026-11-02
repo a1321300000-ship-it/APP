@@ -13,7 +13,9 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 object VaultCrypto {
+    // Keep the 1 MiB maximum so legacy encrypted files remain readable.
     const val CHUNK_SIZE = 1024 * 1024
+    private const val STREAM_BUFFER_SIZE = 64 * 1024
     private const val STREAM_MAGIC = 0x564C5431
     private const val GCM_TAG_BITS = 128
     private val random = SecureRandom()
@@ -53,7 +55,8 @@ object VaultCrypto {
     fun encryptStream(input: InputStream, output: OutputStream, keyBytes: ByteArray, context: String): Long {
         val data = DataOutputStream(output)
         data.writeInt(STREAM_MAGIC)
-        val buffer = ByteArray(CHUNK_SIZE)
+        // New data is encrypted in 64 KiB records; the record framing and AAD are unchanged.
+        val buffer = ByteArray(STREAM_BUFFER_SIZE)
         var chunk = 0L
         var totalBytes = 0L
         while (true) {

@@ -29,6 +29,16 @@ class PatternView(context: Context) : View(context) {
         invalidate()
     }
 
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val widthMode = MeasureSpec.getMode(widthMeasureSpec)
+        val heightMode = MeasureSpec.getMode(heightMeasureSpec)
+        val widthSize = MeasureSpec.getSize(widthMeasureSpec).coerceAtLeast(1)
+        val heightSize = if (heightMode == MeasureSpec.UNSPECIFIED) widthSize else MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(1)
+        val requestedHeight = (min(widthSize, heightSize) * 0.85f).toInt().coerceAtLeast(1)
+        val measuredWidth = if (widthMode == MeasureSpec.UNSPECIFIED) requestedHeight else widthSize
+        setMeasuredDimension(measuredWidth, resolveSize(requestedHeight, heightMeasureSpec))
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val side = min(width.toFloat(), height.toFloat())

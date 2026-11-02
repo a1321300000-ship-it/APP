@@ -18,8 +18,8 @@ android {
         applicationId = "he.vault.app"
         minSdk = 24
         targetSdk = 28
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
     }
 
     // This APK is distributed directly, not through Google Play.
@@ -42,7 +42,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             if (fixedSigningAvailable) {
                 signingConfig = signingConfigs.getByName("vaultFixed")
             }
@@ -62,4 +64,9 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+
+dependencies {
+    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
 }
