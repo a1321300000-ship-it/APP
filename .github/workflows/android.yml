@@ -85,9 +85,9 @@ jobs:
         shell: bash
         run: |
           if gh release view vault-latest >/dev/null 2>&1; then
-            gh release edit vault-latest --title "כספת – הגרסה העדכנית 1.3" --notes "הורדת הגרסה העדכנית של אפליקציית כספת."
+            gh release edit vault-latest --title "כספת – הגרסה העדכנית 1.4" --notes "הורדת הגרסה העדכנית של אפליקציית כספת."
           else
-            gh release create vault-latest vault.apk --target "$GITHUB_SHA" --title "כספת – הגרסה העדכנית 1.3" --notes "הורדת הגרסה העדכנית של אפליקציית כספת." --latest
+            gh release create vault-latest vault.apk --target "$GITHUB_SHA" --title "כספת – הגרסה העדכנית 1.4" --notes "הורדת הגרסה העדכנית של אפליקציית כספת." --latest
           fi
           gh release upload vault-latest vault.apk --clobber
           gh release view vault-latest --json assets --jq '.assets[] | select(.name == "vault.apk") | .size' | grep -Eq '^[1-9][0-9]*$'
