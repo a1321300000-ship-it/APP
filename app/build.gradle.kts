@@ -18,8 +18,8 @@ android {
         applicationId = "he.vault.app"
         minSdk = 24
         targetSdk = 28
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.4"
     }
 
     // This APK is distributed directly, not through Google Play.

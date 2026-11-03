@@ -70,7 +70,7 @@ jobs:
         shell: bash
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/release/app-release.apk | grep -F "package: name='he.vault.app' versionCode='4' versionName='1.3'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/release/app-release.apk | grep -F "package: name='he.vault.app' versionCode='5' versionName='1.4'"
           if "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions app/build/outputs/apk/release/app-release.apk | grep -q "android.permission.INTERNET"; then
             echo "Unexpected INTERNET permission found in APK."
             exit 1
@@ -105,7 +105,7 @@ jobs:
       - name: Upload debug APK fallback
         uses: actions/upload-artifact@v4
         with:
-          name: vault-debug-apk-v1.3
+          name: vault-debug-apk-v1.4
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
@@ -114,7 +114,7 @@ jobs:
         if: steps.signing.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: vault-release-apk-v1.3
+          name: vault-release-apk-v1.4
           path: vault.apk
           if-no-files-found: error
           retention-days: 30

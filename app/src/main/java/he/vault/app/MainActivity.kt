@@ -195,7 +195,7 @@ class MainActivity : Activity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    private fun newRoot(scrollable: Boolean = true): LinearLayout {
+    private fun newRoot(scrollable: Boolean = true, disableOverscroll: Boolean = false): LinearLayout {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
@@ -206,6 +206,7 @@ class MainActivity : Activity() {
             ScrollView(this).apply {
                 isFillViewport = true
                 clipToPadding = false
+                if (disableOverscroll) overScrollMode = View.OVER_SCROLL_NEVER
                 addView(root, ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
@@ -481,7 +482,7 @@ class MainActivity : Activity() {
             showSetup()
             return
         }
-        val page = newRoot()
+        val page = newRoot(disableOverscroll = true)
         page.gravity = Gravity.CENTER_HORIZONTAL
         page.addView(title("כספת", 32f))
         addGap(page, 8)
