@@ -117,8 +117,7 @@ internal static class VaultCrypto
             while (count < buffer.Length)
             {
                 int read = input.Read(buffer, count, buffer.Length - count);
-                if (read < 0) break;
-                if (read == 0) continue;
+                if (read == 0) break;
                 count += read;
             }
             if (count == 0) break;
