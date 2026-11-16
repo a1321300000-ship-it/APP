@@ -1,3 +1,4 @@
+using System.IO;
 using Microsoft.Win32;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -357,13 +358,12 @@ public partial class MainWindow : Window
         search.TextAlignment = TextAlignment.Right;
         page.Children.Add(search);
 
+        var list = new StackPanel { FlowDirection = FlowDirection.RightToLeft };
         var sortRow = new WrapPanel { FlowDirection = FlowDirection.RightToLeft };
         sortRow.Children.Add(Button("תאריך", () => { sortMode = "date"; RenderFiles(); }));
         sortRow.Children.Add(Button("שם", () => { sortMode = "name"; RenderFiles(); }));
         sortRow.Children.Add(Button("גודל", () => { sortMode = "size"; RenderFiles(); }));
         page.Children.Add(sortRow);
-
-        var list = new StackPanel { FlowDirection = FlowDirection.RightToLeft };
         page.Children.Add(list);
         void Render()
         {
