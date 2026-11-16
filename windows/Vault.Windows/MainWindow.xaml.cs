@@ -730,7 +730,7 @@ public partial class MainWindow : Window
                 CredentialSet credentials = store.LoadCredentials() ?? throw new InvalidOperationException("פרטי הכניסה חסרים");
                 store.SaveCredentials(Credentials.Replace(credentials, masterKey, accepted, "pattern"));
                 MessageBox.Show("קוד הקווים עודכן. הקוד המספרי נשאר ללא שינוי.", "כספת", MessageBoxButton.OK, MessageBoxImage.Information);
-                patternWindow.Close();
+                patternWindow?.Close();
             }
             catch (Exception ex)
             {
@@ -738,7 +738,7 @@ public partial class MainWindow : Window
             }
         }, true);
         panel.Children.Add(save);
-        var patternWindow = new Window
+        patternWindow = new Window
         {
             Title = "שינוי קוד קווים",
             Owner = this,
@@ -748,7 +748,7 @@ public partial class MainWindow : Window
             Background = Bg,
             Content = panel
         };
-        patternWindow.ShowDialog();
+        patternWindow!.ShowDialog();
     }
 
     private void ShowHistory()
@@ -781,6 +781,7 @@ public partial class MainWindow : Window
 
     private void ShowScareWindow()
     {
+        Window? scareWindow = null;
         var panel = new StackPanel
         {
             Margin = new Thickness(24),
@@ -792,8 +793,8 @@ public partial class MainWindow : Window
         panel.Children.Add(Text("הדמיה בלבד · לא נשלח דיווח ולא מתבצעת תקשורת", 13, AccentBrush));
         panel.Children.Add(Text("נרשם ניסיון גישה לא מורשה. המידע נשמר מקומית בלבד.", 16, WhiteBrush));
         panel.Children.Add(Text("אין צילום מצלמה בגרסת Windows. לא נאסף מידע ביומטרי.", 13));
-        panel.Children.Add(Button("סגירה", () => scareWindow.Close(), true));
-        var scareWindow = new Window
+        panel.Children.Add(Button("סגירה", () => scareWindow?.Close(), true));
+        scareWindow = new Window
         {
             Title = "מרכז אבטחה מקומי",
             Owner = this,
@@ -804,7 +805,7 @@ public partial class MainWindow : Window
             Foreground = WhiteBrush,
             Content = panel
         };
-        scareWindow.ShowDialog();
+        scareWindow!.ShowDialog();
     }
 
     private string? PromptSecret(string message)
