@@ -15,6 +15,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.net.Uri
@@ -113,13 +114,13 @@ class MainActivity : Activity() {
         private const val REQ_BACKUP = 103
         private const val REQ_RESTORE = 104
         private const val REQ_CAMERA = 105
-        private const val BG = 0xFF050505.toInt()
-        private const val PANEL = 0xFF111315.toInt()
-        private const val PANEL_2 = 0xFF1A1D1D.toInt()
-        private const val ACCENT = 0xFFFF1744.toInt()
-        private const val WHITE = 0xFFE8ECE7.toInt()
-        private const val MUTED = 0xFFA7B0A5.toInt()
-        private const val RED = 0xFFFF1744.toInt()
+        private const val BG = 0xFF07111C.toInt()
+        private const val PANEL = 0xFF121D2A.toInt()
+        private const val PANEL_2 = 0xFF1B2A3A.toInt()
+        private const val ACCENT = 0xFFFF315A.toInt()
+        private const val WHITE = 0xFFF1F4F7.toInt()
+        private const val MUTED = 0xFF9CAAB8.toInt()
+        private const val RED = 0xFFFF315A.toInt()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -195,13 +196,64 @@ class MainActivity : Activity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
+    private fun createBackdrop(): LayerDrawable {
+        val base = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(0xFF0A1726.toInt(), BG, 0xFF070D18.toInt())
+        )
+        fun glow(x: Float, y: Float, radius: Int, color: Int) = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            gradientType = GradientDrawable.RADIAL_GRADIENT
+            setGradientCenter(x, y)
+            gradientRadius = dp(radius).toFloat()
+            setColors(intArrayOf(color, Color.TRANSPARENT))
+        }
+        return LayerDrawable(arrayOf(
+            base,
+            glow(0.98f, 0.02f, 300, 0x3024D7E7),
+            glow(0.02f, 0.72f, 250, 0x28FF315A)
+        ))
+    }
+
+    private fun brandBar(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        layoutDirection = View.LAYOUT_DIRECTION_RTL
+        gravity = Gravity.CENTER_VERTICAL
+        val badge = TextView(this@MainActivity).apply {
+            text = "●  מקומי ומוצפן"
+            textSize = 11f
+            setTextColor(0xFF73DCE5.toInt())
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setPadding(dp(11), dp(6), dp(11), dp(6))
+            background = GradientDrawable().apply {
+                setColor(0x1F39C7D2)
+                cornerRadius = dp(18).toFloat()
+                setStroke(dp(1), 0x665ACEDB)
+            }
+        }
+        addView(badge)
+        addView(View(this@MainActivity), LinearLayout.LayoutParams(0, 1, 1f))
+        addView(TextView(this@MainActivity).apply {
+            text = "אבטחה אישית"
+            textSize = 11f
+            setTextColor(MUTED)
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+        })
+    }
+
     private fun newRoot(scrollable: Boolean = true, disableOverscroll: Boolean = false): LinearLayout {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setBackgroundColor(BG)
+            background = createBackdrop()
             setPadding(dp(16), dp(12), dp(16), dp(12))
         }
+        root.addView(brandBar(), LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        root.addView(View(this), LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(10)
+        ))
         val screen: View = if (scrollable) {
             ScrollView(this).apply {
                 isFillViewport = true
@@ -336,7 +388,7 @@ class MainActivity : Activity() {
         this.text = text
         textSize = size
         setTextColor(WHITE)
-        typeface = Typeface.MONOSPACE
+        typeface = Typeface.create("sans-serif", Typeface.BOLD)
         gravity = Gravity.RIGHT
         textDirection = View.TEXT_DIRECTION_RTL
     }
@@ -347,7 +399,7 @@ class MainActivity : Activity() {
         setTextColor(color)
         gravity = Gravity.RIGHT
         textDirection = View.TEXT_DIRECTION_RTL
-        typeface = Typeface.MONOSPACE
+        typeface = Typeface.create("sans-serif", Typeface.NORMAL)
         setLineSpacing(dp(3).toFloat(), 1f)
     }
 
@@ -355,12 +407,23 @@ class MainActivity : Activity() {
         this.text = text
         isAllCaps = false
         textSize = 15f
-        setTextColor(if (filled) BG else WHITE)
-        background = GradientDrawable().apply {
-            setColor(if (filled) ACCENT else PANEL_2)
-            cornerRadius = dp(13).toFloat()
-            if (!filled) setStroke(dp(1), 0x99FF1744.toInt())
+        setTextColor(WHITE)
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        background = if (filled) {
+            GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(0xFFFF315A.toInt(), 0xFFFF6B7F.toInt())
+            ).apply { cornerRadius = dp(13).toFloat() }
+        } else {
+            GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF1B2A3A.toInt(), 0xFF101B28.toInt())
+            ).apply {
+                cornerRadius = dp(13).toFloat()
+                setStroke(dp(1), 0x87579694.toInt())
+            }
         }
+        elevation = dp(2).toFloat()
         setPadding(dp(12), dp(8), dp(12), dp(8))
         setOnClickListener { onClick() }
     }
@@ -374,7 +437,13 @@ class MainActivity : Activity() {
         textDirection = View.TEXT_DIRECTION_LTR
         gravity = Gravity.CENTER
         setPadding(dp(12), dp(8), dp(12), dp(8))
-        background = GradientDrawable().apply { setColor(PANEL_2); cornerRadius = dp(11).toFloat() }
+        background = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(0xFF1B2A3A.toInt(), 0xFF142235.toInt())
+        ).apply {
+            cornerRadius = dp(11).toFloat()
+            setStroke(dp(1), 0x665B7994)
+        }
         if (numeric) inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
         else inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
     }
@@ -382,11 +451,14 @@ class MainActivity : Activity() {
     private fun card(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         layoutDirection = View.LAYOUT_DIRECTION_RTL
-        background = GradientDrawable().apply {
-            setColor(PANEL)
+        background = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(0xF0192737.toInt(), 0xF0101B28.toInt())
+        ).apply {
             cornerRadius = dp(18).toFloat()
-            setStroke(dp(1), 0x663F252B.toInt())
+            setStroke(dp(1), 0x6E64829C)
         }
+        elevation = dp(4).toFloat()
         setPadding(dp(16), dp(14), dp(16), dp(14))
     }
 

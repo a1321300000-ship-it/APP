@@ -66,7 +66,7 @@ class PatternView(context: Context) : View(context) {
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = maxOf(3f, gap * 0.045f)
         paint.strokeCap = Paint.Cap.ROUND
-        paint.color = 0xFFFF1744.toInt()
+        paint.color = 0xFFFF315A.toInt()
         if (points.size > 1) {
             path.reset()
             points.forEachIndexed { position, index ->
@@ -80,7 +80,7 @@ class PatternView(context: Context) : View(context) {
         points.forEach { index ->
             val point = centers[index]
             paint.style = Paint.Style.FILL
-            paint.color = 0xFFFF1744.toInt()
+            paint.color = 0xFFFF315A.toInt()
             canvas.drawCircle(point.first, point.second, gap * 0.18f, paint)
         }
 
@@ -88,7 +88,7 @@ class PatternView(context: Context) : View(context) {
             val point = centers[index]
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = maxOf(2f, gap * 0.035f)
-            paint.color = if (points.contains(index)) 0xFFFF1744.toInt() else 0xFFA7B0A5.toInt()
+            paint.color = if (points.contains(index)) 0xFFFF315A.toInt() else 0xFF9CAAB8.toInt()
             canvas.drawCircle(point.first, point.second, gap * 0.16f, paint)
         }
     }

@@ -47,7 +47,7 @@ class WatchingEyeView(
         val eyeHeight = baseHeight * pulse * (1f - closeProgress * 0.94f)
 
         paint.shader = RadialGradient(cx, cy, width * 0.40f,
-            intArrayOf(0x33FF1744, 0x00FF1744), null, Shader.TileMode.CLAMP)
+            intArrayOf(0x33FF315A, 0x00FF315A), null, Shader.TileMode.CLAMP)
         canvas.drawCircle(cx, cy, width * 0.40f, paint)
         paint.shader = null
 
@@ -58,27 +58,27 @@ class WatchingEyeView(
         eyePath.close()
 
         paint.style = Paint.Style.FILL
-        paint.color = 0xFF111315.toInt()
+        paint.color = 0xFF121D2A.toInt()
         canvas.drawPath(eyePath, paint)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = maxOf(3f, width * 0.012f)
-        paint.color = 0xFFFF1744.toInt()
+        paint.color = 0xFFFF315A.toInt()
         canvas.drawPath(eyePath, paint)
 
         if (eyeHeight > 2f) {
             paint.style = Paint.Style.FILL
-            paint.color = 0x55FF1744
+            paint.color = 0x55FF315A
             canvas.drawCircle(cx, cy, eyeHeight * 0.95f, paint)
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = maxOf(2f, width * 0.008f)
-            paint.color = 0xFFFF1744.toInt()
+            paint.color = 0xFFFF315A.toInt()
             canvas.drawCircle(cx, cy, eyeHeight * 0.78f, paint)
             paint.style = Paint.Style.FILL
-            paint.color = 0xFFFF1744.toInt()
+            paint.color = 0xFFFF315A.toInt()
             canvas.drawCircle(cx, cy, eyeHeight * 0.48f, paint)
             paint.color = 0xFF050505.toInt()
             canvas.drawCircle(cx, cy, eyeHeight * 0.19f, paint)
-            paint.color = 0xFFE8ECE7.toInt()
+            paint.color = 0xFFF1F4F7.toInt()
             canvas.drawCircle(cx - eyeHeight * 0.12f, cy - eyeHeight * 0.13f, eyeHeight * 0.07f, paint)
         }
 
