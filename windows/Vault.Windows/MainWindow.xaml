@@ -2,11 +2,57 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="כספת"
-        Width="1120" Height="820"
-        MinWidth="820" MinHeight="650"
+        Width="1180" Height="860"
+        MinWidth="900" MinHeight="680"
         WindowStartupLocation="CenterScreen"
-        Background="#FF050505"
-        Foreground="#FFE8ECE7"
-        FlowDirection="RightToLeft">
-    <Grid x:Name="Root"/>
+        Background="#FF07111C"
+        Foreground="#FFF1F4F7"
+        FlowDirection="RightToLeft"
+        FontFamily="Segoe UI"
+        UseLayoutRounding="True">
+    <Grid x:Name="Root" ClipToBounds="True">
+        <Grid.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#FF07111C" Offset="0"/>
+                <GradientStop Color="#FF0A1724" Offset="0.48"/>
+                <GradientStop Color="#FF101B29" Offset="1"/>
+            </LinearGradientBrush>
+        </Grid.Background>
+
+        <!-- Soft ambient colour behind the content -->
+        <Ellipse Width="570" Height="570" HorizontalAlignment="Right" VerticalAlignment="Top"
+                 Margin="0,-250,-190,0" IsHitTestVisible="False" Opacity="0.7">
+            <Ellipse.Fill>
+                <RadialGradientBrush>
+                    <GradientStop Color="#44FF315A" Offset="0"/>
+                    <GradientStop Color="#18FF315A" Offset="0.42"/>
+                    <GradientStop Color="#00FF315A" Offset="1"/>
+                </RadialGradientBrush>
+            </Ellipse.Fill>
+            <Ellipse.Effect><BlurEffect Radius="32"/></Ellipse.Effect>
+        </Ellipse>
+        <Ellipse Width="640" Height="640" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                 Margin="-300,0,0,-350" IsHitTestVisible="False" Opacity="0.65">
+            <Ellipse.Fill>
+                <RadialGradientBrush>
+                    <GradientStop Color="#3340A9D8" Offset="0"/>
+                    <GradientStop Color="#123A8CB8" Offset="0.5"/>
+                    <GradientStop Color="#003A8CB8" Offset="1"/>
+                </RadialGradientBrush>
+            </Ellipse.Fill>
+            <Ellipse.Effect><BlurEffect Radius="38"/></Ellipse.Effect>
+        </Ellipse>
+
+        <Grid x:Name="PageHost" Margin="26,20,26,24"/>
+        <Border HorizontalAlignment="Stretch" VerticalAlignment="Top" Height="2"
+                Margin="28,0,28,0" IsHitTestVisible="False">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                    <GradientStop Color="#00FF315A" Offset="0"/>
+                    <GradientStop Color="#AAFF315A" Offset="0.48"/>
+                    <GradientStop Color="#003B9FC9" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
+    </Grid>
 </Window>
