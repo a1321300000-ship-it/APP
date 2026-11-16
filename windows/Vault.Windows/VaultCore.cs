@@ -108,6 +108,7 @@ internal static class VaultCrypto
 
     internal static long EncryptStream(Stream input, Stream output, byte[] key, string context)
     {
+        WriteInt32(output, StreamMagic);
         byte[] buffer = new byte[StreamBufferSize];
         long chunk = 0;
         long total = 0;
