@@ -717,6 +717,7 @@ public partial class MainWindow : Window
             Child = pad
         });
         panel.Children.Add(status);
+        Window? patternWindow = null;
         var save = Button("שמירת קוד קווים חדש", () =>
         {
             if (accepted == null)
