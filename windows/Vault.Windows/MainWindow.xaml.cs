@@ -12,11 +12,11 @@ namespace Vault.Windows;
 
 public partial class MainWindow : Window
 {
-    private static readonly Brush Bg = new SolidColorBrush(Color.FromRgb(5, 5, 5));
-    private static readonly Brush PanelBrush = new SolidColorBrush(Color.FromRgb(17, 19, 21));
-    private static readonly Brush AccentBrush = new SolidColorBrush(Color.FromRgb(255, 23, 68));
-    private static readonly Brush WhiteBrush = new SolidColorBrush(Color.FromRgb(232, 236, 231));
-    private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(167, 176, 165));
+    private static readonly Brush Bg = new SolidColorBrush(Color.FromRgb(7, 17, 28));
+    private static readonly Brush PanelBrush = new SolidColorBrush(Color.FromRgb(18, 29, 42));
+    private static readonly Brush AccentBrush = new SolidColorBrush(Color.FromRgb(255, 49, 90));
+    private static readonly Brush WhiteBrush = new SolidColorBrush(Color.FromRgb(241, 244, 247));
+    private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(156, 170, 184));
     private readonly VaultStore store = new();
     private byte[]? masterKey;
     private List<VaultItem> items = [];
@@ -44,7 +44,8 @@ public partial class MainWindow : Window
             TextAlignment = TextAlignment.Right,
             TextWrapping = TextWrapping.Wrap,
             FlowDirection = FlowDirection.RightToLeft,
-            Margin = new Thickness(3, 4, 3, 4)
+            FontFamily = new FontFamily("Segoe UI"),
+            Margin = new Thickness(3, 5, 3, 5)
         };
     }
 
@@ -52,14 +53,26 @@ public partial class MainWindow : Window
     {
         var stack = new StackPanel { FlowDirection = FlowDirection.RightToLeft };
         foreach (var child in children) stack.Children.Add(child);
+        var surface = new LinearGradientBrush();
+        surface.StartPoint = new Point(0, 0);
+        surface.EndPoint = new Point(1, 1);
+        surface.GradientStops.Add(new GradientStop(Color.FromRgb(25, 39, 55), 0));
+        surface.GradientStops.Add(new GradientStop(Color.FromRgb(16, 27, 40), 1));
         return new Border
         {
-            Background = PanelBrush,
-            BorderBrush = new SolidColorBrush(Color.FromArgb(102, 63, 37, 43)),
+            Background = surface,
+            BorderBrush = new SolidColorBrush(Color.FromArgb(110, 100, 130, 156)),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(15),
-            Padding = new Thickness(16),
-            Margin = new Thickness(4, 7, 4, 7),
+            CornerRadius = new CornerRadius(17),
+            Padding = new Thickness(18),
+            Margin = new Thickness(4, 8, 4, 8),
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Color.FromRgb(0, 0, 0),
+                BlurRadius = 22,
+                ShadowDepth = 4,
+                Opacity = 0.22
+            },
             Child = stack
         };
     }
@@ -69,12 +82,15 @@ public partial class MainWindow : Window
         var button = new Button
         {
             Content = label,
-            MinHeight = 40,
-            Background = accent ? AccentBrush : new SolidColorBrush(Color.FromRgb(26, 29, 29)),
-            Foreground = accent ? Bg : WhiteBrush,
-            BorderBrush = accent ? AccentBrush : new SolidColorBrush(Color.FromArgb(153, 255, 23, 68)),
+            MinHeight = 43,
+            Padding = new Thickness(17, 10, 17, 10),
+            Background = accent ? AccentBrush : new SolidColorBrush(Color.FromRgb(27, 42, 58)),
+            Foreground = WhiteBrush,
+            BorderBrush = accent ? AccentBrush : new SolidColorBrush(Color.FromArgb(135, 87, 119, 148)),
             HorizontalContentAlignment = HorizontalAlignment.Center,
-            VerticalContentAlignment = VerticalAlignment.Center
+            VerticalContentAlignment = VerticalAlignment.Center,
+            FontFamily = new FontFamily("Segoe UI"),
+            FontWeight = FontWeights.SemiBold
         };
         button.Click += (_, _) => action();
         return button;
@@ -104,16 +120,83 @@ public partial class MainWindow : Window
         };
     }
 
+    private Border CreateBrandHeader()
+    {
+        var content = new DockPanel { LastChildFill = true, FlowDirection = FlowDirection.RightToLeft };
+        var emblem = new TextBlock
+        {
+            Text = "◈",
+            FontSize = 38,
+            FontWeight = FontWeights.Bold,
+            Foreground = AccentBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Width = 62,
+            TextAlignment = TextAlignment.Center
+        };
+        DockPanel.SetDock(emblem, Dock.Right);
+        content.Children.Add(emblem);
+
+        var badge = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(45, 255, 49, 90)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(115, 255, 80, 112)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(13, 7, 13, 7),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = Text("מקומי ומוצפן", 12, WhiteBrush, true)
+        };
+        DockPanel.SetDock(badge, Dock.Left);
+        content.Children.Add(badge);
+
+        var labels = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            FlowDirection = FlowDirection.RightToLeft
+        };
+        labels.Children.Add(Text("כספת", 22, WhiteBrush, true));
+        labels.Children.Add(Text("מרחב אישי לקבצים שלך · המידע נשאר אצלך", 12, MutedBrush));
+        content.Children.Add(labels);
+
+        var background = new LinearGradientBrush();
+        background.StartPoint = new Point(0, 0);
+        background.EndPoint = new Point(1, 1);
+        background.GradientStops.Add(new GradientStop(Color.FromArgb(238, 24, 39, 55), 0));
+        background.GradientStops.Add(new GradientStop(Color.FromArgb(225, 13, 25, 39), 1));
+        return new Border
+        {
+            Background = background,
+            BorderBrush = new SolidColorBrush(Color.FromArgb(110, 91, 121, 148)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(18),
+            Padding = new Thickness(17, 10, 17, 10),
+            Margin = new Thickness(4, 0, 4, 15),
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Color.FromRgb(0, 0, 0),
+                BlurRadius = 24,
+                ShadowDepth = 5,
+                Opacity = 0.25
+            },
+            Child = content
+        };
+    }
+
     private StackPanel NewPage()
     {
         var page = new StackPanel
         {
-            Margin = new Thickness(22, 18, 22, 24),
+            Margin = new Thickness(0, 4, 0, 24),
+            MaxWidth = 1040,
+            HorizontalAlignment = HorizontalAlignment.Center,
             FlowDirection = FlowDirection.RightToLeft
         };
-        Root.Children.Clear();
-        Root.Children.Add(new ScrollViewer
+        page.Children.Add(CreateBrandHeader());
+        PageHost.Children.Clear();
+        PageHost.Children.Add(new ScrollViewer
         {
+            Background = Brushes.Transparent,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Content = page,
@@ -344,19 +427,21 @@ public partial class MainWindow : Window
         }
 
         var page = NewPage();
-        page.Children.Add(Text("הכספת שלך", 29, WhiteBrush, true));
-        page.Children.Add(Text(items.Count + " קבצים שמורים ומוצפנים במחשב", 14));
-        var actions = new WrapPanel { FlowDirection = FlowDirection.RightToLeft };
+        page.Children.Add(Card(
+            Text("הכספת שלך", 27, WhiteBrush, true),
+            Text(items.Count + " קבצים שמורים ומוצפנים במחשב", 14, MutedBrush)
+        ));
+        var actions = new WrapPanel { FlowDirection = FlowDirection.RightToLeft, Margin = new Thickness(0, 2, 0, 5) };
         actions.Children.Add(Button("＋ הכנסת קבצים", ImportFiles, true));
         actions.Children.Add(Button("הגדרות", ShowSettings));
         actions.Children.Add(Button("גיבוי", CreateBackup));
         actions.Children.Add(Button("שחזור", RestoreBackup));
         actions.Children.Add(Button("נעילה", LockVault));
-        page.Children.Add(actions);
+        page.Children.Add(Card(actions));
         page.Children.Add(Text("הקבצים שלי", 21, WhiteBrush, true));
         var search = TextField(searchText, "חיפוש לפי שם קובץ");
         search.TextAlignment = TextAlignment.Right;
-        page.Children.Add(search);
+        page.Children.Add(Card(search));
 
         var list = new StackPanel { FlowDirection = FlowDirection.RightToLeft };
         var sortRow = new WrapPanel { FlowDirection = FlowDirection.RightToLeft };
