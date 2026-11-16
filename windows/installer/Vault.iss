@@ -64,7 +64,7 @@ begin
   Result :=
     HasDesktopRuntimeAt(ExpandConstant('{autopf}\dotnet')) or
     HasDesktopRuntimeAt(ExpandConstant('{localappdata}\Microsoft\dotnet')) or
-    HasDesktopRuntimeAt(ExpandConstant('{userprofile}\.dotnet'));
+    HasDesktopRuntimeAt(GetEnv('USERPROFILE') + '\.dotnet');
 end;
 
 function InitializeSetup(): Boolean;
