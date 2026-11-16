@@ -9,6 +9,10 @@
 הנתונים המקומיים של Windows נשמרים תחת:
 %LOCALAPPDATA%\כספת\vault
 
+## דרישת מערכת והתקנה
+
+גרסת Windows מבוססת על .NET 10 Desktop Runtime ‏(x64). אם הרכיב אינו מותקן, תוכנית ההתקנה מציגה הודעה וקישור לעמוד ההורדה הרשמי של Microsoft. יש להתקין את הרכיב פעם אחת; לאחר מכן כספת פועלת מקומית ואינה דורשת חיבור לאינטרנט.
+
 ## בנייה
 
-נדרש .NET 8 SDK ו-Inno Setup. קובץ ההתקנה נבנה מתוך windows/installer/Vault.iss.
+נדרש .NET 10 SDK ו-Inno Setup. קובץ ההתקנה נבנה מתוך windows/installer/Vault.iss.
