@@ -2,7 +2,7 @@ name: Build and publish Vault for Windows
 
 on:
   push:
-    branches: [ main, windows-desktop ]
+    branches: [ main, windows-desktop, windows-size-test ]
     paths:
       - 'windows/**'
       - '.github/workflows/windows.yml'
@@ -27,10 +27,10 @@ jobs:
       - name: Restore
         run: dotnet restore windows/Vault.Windows/Vault.Windows.csproj
 
-      - name: Publish self-contained Windows app
+      - name: Publish framework-dependent Windows test build
         shell: pwsh
         run: |
-          dotnet publish windows/Vault.Windows/Vault.Windows.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true --output windows/Vault.Windows/publish
+          dotnet publish windows/Vault.Windows/Vault.Windows.csproj --configuration Release --runtime win-x64 --self-contained false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true --output windows/Vault.Windows/publish
           if (-not (Test-Path "windows/Vault.Windows/publish/Vault.Windows.exe")) {
             throw "The Windows executable was not produced."
           }
