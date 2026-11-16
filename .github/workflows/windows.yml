@@ -27,7 +27,7 @@ jobs:
       - name: Restore
         run: dotnet restore windows/Vault.Windows/Vault.Windows.csproj
 
-      - name: Publish framework-dependent Windows test build
+      - name: Publish framework-dependent Windows app
         shell: pwsh
         run: |
           dotnet publish windows/Vault.Windows/Vault.Windows.csproj --configuration Release --runtime win-x64 --self-contained false -p:PublishSingleFile=true  --output windows/Vault.Windows/publish
@@ -51,7 +51,8 @@ jobs:
           }
           $length = (Get-Item "windows/artifacts/Vault-Windows-Setup.exe").Length
           if ($length -lt 100000) { throw "The installer is unexpectedly small." }
-          Write-Host "Installer ready: $length bytes"
+          if ($length -ge (30 * 1024 * 1024)) { throw "The Windows installer exceeds the 30 MB store limit: $length bytes" }
+          Write-Host "Installer ready under 30 MB: $length bytes"
 
       - name: Upload installer backup
         uses: actions/upload-artifact@v4
