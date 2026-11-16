@@ -38,9 +38,13 @@ internal sealed class PatternPad : FrameworkElement
 
         if (points.Count > 1)
         {
-            var line = new Pen(new SolidColorBrush(Color.FromRgb(255, 23, 68)), Math.Max(3, gap * 0.055));
+            var glow = new Pen(new SolidColorBrush(Color.FromArgb(45, 255, 49, 90)), Math.Max(10, gap * 0.16));
+            var line = new Pen(new SolidColorBrush(Color.FromRgb(255, 74, 108)), Math.Max(3, gap * 0.055));
             for (int i = 1; i < points.Count; i++)
+            {
+                dc.DrawLine(glow, Center(points[i - 1]), Center(points[i]));
                 dc.DrawLine(line, Center(points[i - 1]), Center(points[i]));
+            }
         }
 
         double radius = Math.Max(8, gap * 0.17);
@@ -48,11 +52,13 @@ internal sealed class PatternPad : FrameworkElement
         {
             bool selected = points.Contains(i);
             Brush fill = selected
-                ? new SolidColorBrush(Color.FromRgb(118, 155, 125))
-                : new SolidColorBrush(Color.FromRgb(42, 48, 45));
+                ? new SolidColorBrush(Color.FromRgb(255, 49, 90))
+                : new SolidColorBrush(Color.FromRgb(31, 48, 66));
             Pen outline = new(new SolidColorBrush(selected
-                ? Color.FromRgb(205, 231, 208)
-                : Color.FromRgb(128, 139, 132)), 2);
+                ? Color.FromRgb(255, 207, 217)
+                : Color.FromRgb(101, 128, 151)), 2);
+            if (selected)
+                dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(42, 255, 49, 90)), null, Center(i), radius * 1.9, radius * 1.9);
             dc.DrawEllipse(fill, outline, Center(i), radius, radius);
         }
     }
