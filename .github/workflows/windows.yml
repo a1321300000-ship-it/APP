@@ -1,0 +1,84 @@
+name: Build and publish Vault for Windows
+
+on:
+  push:
+    branches: [ main, windows-desktop ]
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore windows/Vault.Windows/Vault.Windows.csproj
+
+      - name: Publish self-contained Windows app
+        shell: pwsh
+        run: |
+          dotnet publish windows/Vault.Windows/Vault.Windows.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true --output windows/Vault.Windows/publish
+          if (-not (Test-Path "windows/Vault.Windows/publish/Vault.Windows.exe")) {
+            throw "The Windows executable was not produced."
+          }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $compiler = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $compiler)) { throw "Inno Setup compiler was not found." }
+          & $compiler "windows/installer/Vault.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed." }
+          if (-not (Test-Path "windows/artifacts/Vault-Windows-Setup.exe")) {
+            throw "The Windows setup file was not produced."
+          }
+          $length = (Get-Item "windows/artifacts/Vault-Windows-Setup.exe").Length
+          if ($length -lt 100000) { throw "The installer is unexpectedly small." }
+          Write-Host "Installer ready: $length bytes"
+
+      - name: Upload installer backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-windows-installer
+          path: windows/artifacts/Vault-Windows-Setup.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish and verify fixed GitHub Release asset
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view vault-latest
+          gh release upload vault-latest windows/artifacts/Vault-Windows-Setup.exe --clobber
+          $assetSize = gh release view vault-latest --json assets --jq '.assets[] | select(.name == "Vault-Windows-Setup.exe") | .size'
+          if ([string]::IsNullOrWhiteSpace($assetSize) -or [int64]$assetSize -lt 100000) {
+            throw "The Windows installer is missing from Release assets."
+          }
+          $url = "https://github.com/a1321300000-ship-it/APP/releases/download/vault-latest/Vault-Windows-Setup.exe"
+          $download = Join-Path $env:RUNNER_TEMP "Vault-Windows-Setup-verified.exe"
+          Invoke-WebRequest -Uri $url -OutFile $download
+          if (-not (Test-Path $download)) { throw "The Release download check failed." }
+          $sourceHash = (Get-FileHash "windows/artifacts/Vault-Windows-Setup.exe" -Algorithm SHA256).Hash
+          $downloadHash = (Get-FileHash $download -Algorithm SHA256).Hash
+          if ($sourceHash -ne $downloadHash) { throw "The downloaded installer does not match the built installer." }
+          Write-Host "Verified Windows installer Release asset: $url"
+          Write-Host "SHA256: $sourceHash"
