@@ -215,8 +215,8 @@ public partial class MainWindow : Window
     private void ShowSetup()
     {
         var page = NewPage();
-        page.Children.Add(Text("כספת", 34, WhiteBrush, true));
-        page.Children.Add(Text("הגדרה ראשונית · שני קודים לפתיחת אותה כספת", 15));
+        page.Children.Add(Text("יצירת כספת חדשה", 25, WhiteBrush, true));
+        page.Children.Add(Text("הגדרה ראשונית · בוחרים שני קודים לפתיחת אותה כספת", 14, MutedBrush));
         var pin = SecretField("קוד בן 4 עד 8 ספרות");
         var confirmPin = SecretField("אימות הקוד");
         string? firstPattern = null;
@@ -307,8 +307,8 @@ public partial class MainWindow : Window
 
         var page = NewPage();
         page.HorizontalAlignment = HorizontalAlignment.Stretch;
-        page.Children.Add(Text("כספת", 34, WhiteBrush, true));
-        page.Children.Add(Text("המערכת מנטרת אותך... הזן קוד כדי להמשיך", 15));
+        page.Children.Add(Text("פתיחת הכספת", 25, WhiteBrush, true));
+        page.Children.Add(Text("הזן את אחד הקודים האישיים כדי להמשיך", 14, MutedBrush));
         page.Children.Add(Text("◈", 54, AccentBrush, true));
         SettingsDocument settings = store.LoadSettings();
         long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
