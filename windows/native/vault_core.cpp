@@ -170,7 +170,6 @@ static bool isGuid(const std::string& s) {
         else if(!((s[i]>='0'&&s[i]<='9')||(s[i]>='a'&&s[i]<='f')||(s[i]>='A'&&s[i]<='F'))) return false;
     } return true;
 }
-}
 
 std::vector<std::uint8_t> RandomBytes(std::size_t n) {
     std::vector<std::uint8_t> b(n); if(n) ck(BCryptGenRandom(nullptr,b.data(),(ULONG)n,BCRYPT_USE_SYSTEM_PREFERRED_RNG),"יצירת נתון אקראי"); return b;
