@@ -177,7 +177,7 @@ static LRESULT CALLBACK MainProc(HWND h,UINT m,WPARAM w,LPARAM l){
  try{store=std::make_unique<VaultStore>();if(store->HasCredentials())showUnlock();else showSetup();}catch(const std::exception&e){message(L"לא ניתן לאתחל את הכספת: "+W(e.what()),MB_ICONERROR);}return 0;}
  if(m==WM_PATTERN){auto*p=(std::wstring*)l;if(p)patternDone(*p);return 0;}
  if(m==WM_DRAWITEM){auto*d=(DRAWITEMSTRUCT*)l;if(d&&d->CtlType==ODT_BUTTON){drawButton(d);return TRUE;}}
- if(m==WM_CTLCOLORSTATIC){HDC dc=(HDC)w;COLORREF c=TXT;HANDLE t=GetPropW((HWND)l,L"Color");if(t)c=(COLORREF)(INT_PTR)t;SetTextColor(dc,c);SetBkMode(dc,TRANSPARENT);return(HBRUSH)GetStockObject(HOLLOW_BRUSH);}
+ if(m==WM_CTLCOLORSTATIC){HDC dc=(HDC)w;COLORREF c=TXT;HANDLE t=GetPropW((HWND)l,L"Color");if(t)c=(COLORREF)(INT_PTR)t;SetTextColor(dc,c);SetBkMode(dc,TRANSPARENT);return(LRESULT)(INT_PTR)GetStockObject(HOLLOW_BRUSH);}
  if(m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX){HDC dc=(HDC)w;SetTextColor(dc,TXT);SetBkColor(dc,RGB(10,22,34));return(LRESULT)editBrush;}
  if(m==WM_ERASEBKGND){HDC dc=(HDC)w;RECT r{};GetClientRect(h,&r);HBRUSH b=CreateSolidBrush(BG);FillRect(dc,&r,b);DeleteObject(b);return 1;}
  if(m==WM_SIZE&&w!=SIZE_MINIMIZED){EnumChildWindows(h,relayoutProc,0);InvalidateRect(h,nullptr,TRUE);return 0;}
@@ -192,13 +192,13 @@ static LRESULT CALLBACK MainProc(HWND h,UINT m,WPARAM w,LPARAM l){
  float s=1.0f;int oy=0;metrics(s,oy);
  auto panel=[&](int x,int y,int w,int h){RECT q=mapRect(x,y,w,h);Gdiplus::Rect pr(q.left,q.top,q.right-q.left,q.bottom-q.top);if(pr.Width<=0||pr.Height<=0)return;
    Gdiplus::GraphicsPath path;Gdiplus::REAL rad=18.0f*s,diam=rad*2;
-   path.AddArc(pr.X,pr.Y,diam,diam,180,90);path.AddArc(pr.GetRight()-diam,pr.Y,diam,diam,270,90);
-   path.AddArc(pr.GetRight()-diam,pr.GetBottom()-diam,diam,diam,0,90);path.AddArc(pr.X,pr.GetBottom()-diam,diam,diam,90,90);path.CloseFigure();
+   path.AddArc(Gdiplus::RectF((Gdiplus::REAL)pr.X,(Gdiplus::REAL)pr.Y,diam,diam),180.0f,90.0f);path.AddArc(Gdiplus::RectF((Gdiplus::REAL)pr.GetRight()-diam,(Gdiplus::REAL)pr.Y,diam,diam),270.0f,90.0f);
+   path.AddArc(Gdiplus::RectF((Gdiplus::REAL)pr.GetRight()-diam,(Gdiplus::REAL)pr.GetBottom()-diam,diam,diam),0.0f,90.0f);path.AddArc(Gdiplus::RectF((Gdiplus::REAL)pr.X,(Gdiplus::REAL)pr.GetBottom()-diam,diam,diam),90.0f,90.0f);path.CloseFigure();
    Gdiplus::LinearGradientBrush fill(pr,Gdiplus::Color(246,25,39,55),Gdiplus::Color(246,16,27,40),Gdiplus::LinearGradientModeForwardDiagonal);
    Gdiplus::Pen border(Gdiplus::Color(105,100,130,151),std::max(1.0f,s));g.FillPath(&fill,&path);g.DrawPath(&border,&path);
  };
  auto badge=[&](int x,int y,int w,int h){RECT q=mapRect(x,y,w,h);Gdiplus::Rect pr(q.left,q.top,q.right-q.left,q.bottom-q.top);Gdiplus::GraphicsPath path;Gdiplus::REAL rad=(pr.Height/2.0f),diam=rad*2;
-   path.AddArc(pr.X,pr.Y,diam,diam,90,180);path.AddArc(pr.GetRight()-diam,pr.Y,diam,diam,270,180);path.CloseFigure();
+   path.AddArc(Gdiplus::RectF((Gdiplus::REAL)pr.X,(Gdiplus::REAL)pr.Y,diam,diam),90.0f,180.0f);path.AddArc(Gdiplus::RectF((Gdiplus::REAL)pr.GetRight()-diam,(Gdiplus::REAL)pr.Y,diam,diam),270.0f,180.0f);path.CloseFigure();
    Gdiplus::SolidBrush fill(Gdiplus::Color(48,57,211,221));Gdiplus::Pen edge(Gdiplus::Color(110,90,211,221),1.0f);g.FillPath(&fill,&path);g.DrawPath(&edge,&path);
  };
  badge(uiCenter-410,46,220,30);
