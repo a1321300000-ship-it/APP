@@ -186,9 +186,9 @@ static LRESULT CALLBACK MainProc(HWND h,UINT m,WPARAM w,LPARAM l){
  Gdiplus::Rect bounds(0,0,std::max(1L,r.right),std::max(1L,r.bottom));
  Gdiplus::LinearGradientBrush backdrop(bounds,Gdiplus::Color(255,10,23,38),Gdiplus::Color(255,7,13,24),Gdiplus::LinearGradientModeVertical);g.FillRectangle(&backdrop,bounds);
  Gdiplus::GraphicsPath tealGlowPath;tealGlowPath.AddEllipse((Gdiplus::REAL)(r.right-430),(Gdiplus::REAL)-180,520.0f,520.0f);
- Gdiplus::PathGradientBrush tealGlow(&tealGlowPath);Gdiplus::Color tealCenter(34,36,215,231),tealEdge(0,36,215,231);tealGlow.SetCenterColor(tealCenter);tealGlow.SetSurroundColor(tealEdge);g.FillPath(&tealGlow,&tealGlowPath);
+ Gdiplus::PathGradientBrush tealGlow(&tealGlowPath);Gdiplus::Color tealCenter(34,36,215,231),tealEdge[1]={Gdiplus::Color(0,36,215,231)};INT tealCount=1;tealGlow.SetCenterColor(tealCenter);tealGlow.SetSurroundColors(tealEdge,&tealCount);g.FillPath(&tealGlow,&tealGlowPath);
  Gdiplus::GraphicsPath roseGlowPath;roseGlowPath.AddEllipse(-190.0f,(Gdiplus::REAL)(r.bottom-360),430.0f,430.0f);
- Gdiplus::PathGradientBrush roseGlow(&roseGlowPath);Gdiplus::Color roseCenter(28,255,49,90),roseEdge(0,255,49,90);roseGlow.SetCenterColor(roseCenter);roseGlow.SetSurroundColor(roseEdge);g.FillPath(&roseGlow,&roseGlowPath);
+ Gdiplus::PathGradientBrush roseGlow(&roseGlowPath);Gdiplus::Color roseCenter(28,255,49,90),roseEdge[1]={Gdiplus::Color(0,255,49,90)};INT roseCount=1;roseGlow.SetCenterColor(roseCenter);roseGlow.SetSurroundColors(roseEdge,&roseCount);g.FillPath(&roseGlow,&roseGlowPath);
  float s=1.0f;int oy=0;metrics(s,oy);
  auto panel=[&](int x,int y,int w,int h){RECT q=mapRect(x,y,w,h);Gdiplus::Rect pr(q.left,q.top,q.right-q.left,q.bottom-q.top);if(pr.Width<=0||pr.Height<=0)return;
    Gdiplus::GraphicsPath path;Gdiplus::REAL rad=18.0f*s,diam=rad*2;
