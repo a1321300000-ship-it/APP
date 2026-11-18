@@ -167,7 +167,11 @@ static LRESULT CALLBACK MainProc(HWND h,UINT m,WPARAM w,LPARAM l){
  if(m==WM_DRAWITEM){auto*d=(DRAWITEMSTRUCT*)l;if(d&&d->CtlType==ODT_BUTTON){drawButton(d);return TRUE;}}
  if(m==WM_CTLCOLORSTATIC){HDC dc=(HDC)w;COLORREF c=TXT;HANDLE t=GetPropW((HWND)l,L"Color");if(t)c=(COLORREF)(INT_PTR)t;SetTextColor(dc,c);SetBkMode(dc,TRANSPARENT);return(LRESULT)bgBrush;}
  if(m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX){HDC dc=(HDC)w;SetTextColor(dc,TXT);SetBkColor(dc,RGB(13,23,34));return(LRESULT)editBrush;}
- if(m==WM_PAINT){PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);RECT r{};GetClientRect(h,&r);TRIVERTEX v[2]={{0,0,0x0A00,0x1A00,0x2A00,0xFF00},{0,r.bottom,0x0700,0x1100,0x1C00,0xFF00}};GRADIENT_RECT gr{0,1};GradientFill(dc,v,2,&gr,1,GRADIENT_FILL_RECT_V);HBRUSH b=CreateSolidBrush(TEAL);RECT strip{0,0,r.right,3};FillRect(dc,&strip,b);DeleteObject(b);EndPaint(h,&ps);return 0;}
+ if(m==WM_ERASEBKGND){HDC dc=(HDC)w;RECT r{};GetClientRect(h,&r);HBRUSH b=CreateSolidBrush(BG);FillRect(dc,&r,b);DeleteObject(b);return 1;}
+ if(m==WM_PAINT){PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);RECT r{};GetClientRect(h,&r);HBRUSH base=CreateSolidBrush(BG);FillRect(dc,&r,base);DeleteObject(base);
+ TRIVERTEX v[2]={{0,0,0x0A00,0x1A00,0x2A00,0xFF00},{(LONG)r.right,(LONG)r.bottom,0x0700,0x1100,0x1C00,0xFF00}};GRADIENT_RECT gr{0,1};
+ if(r.right>0&&r.bottom>0)GradientFill(dc,v,2,&gr,1,GRADIENT_FILL_RECT_V);
+ HBRUSH b=CreateSolidBrush(TEAL);RECT strip{0,0,r.right,3};FillRect(dc,&strip,b);DeleteObject(b);EndPaint(h,&ps);return 0;}
  if(m==WM_COMMAND){int id=LOWORD(w),code=HIWORD(w);if(id==SEARCH&&code==EN_CHANGE){refreshFiles();return 0;}if(id==SORT&&code==CBN_SELCHANGE){refreshFiles();return 0;}
  if(id==THRESHOLD&&code==CBN_SELCHANGE){auto s=store->LoadSettings();s.scareThreshold=(int)SendMessageW(sortH,CB_GETCURSEL,0,0)+1;store->SaveSettings(s);return 0;}
  switch(id){case CREATE:createVault();return 0;case OPEN_PIN:attempt(U(Get(pin1)),"pin");return 0;case IMPORT:importFiles();return 0;case BACKUP:backup();return 0;case RESTORE_BTN:beginRestore();return 0;case SETTINGS_BTN:showSettings();return 0;case LOCK:clearSession();showUnlock();return 0;case PREVIEW:previewFile();return 0;case EXPORT:exportFile();return 0;case DELETE_ITEM:deleteFile();return 0;
