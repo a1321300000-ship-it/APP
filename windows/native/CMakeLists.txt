@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(VaultNative VERSION 1.1.0 LANGUAGES C CXX RC)
+project(VaultNative VERSION 1.1.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -11,7 +11,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_executable(VaultNative WIN32
     app.cpp
     vault_core.cpp
-    native_windows.rc
     third_party/miniz/miniz.c
     third_party/miniz/miniz_tdef.c
     third_party/miniz/miniz_tinfl.c
@@ -49,6 +48,15 @@ target_link_libraries(VaultNative PRIVATE
     gdiplus
     msimg32
 )
+
+# Embed the app manifest through the linker. Do not also compile it as an
+# RT_MANIFEST resource, otherwise MSVC reports duplicate resource ID 1.
+if(MSVC)
+    target_link_options(VaultNative PRIVATE
+        "/MANIFEST:EMBED"
+        "/MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/native.manifest"
+    )
+endif()
 
 # Use the static MSVC runtime so end users do not need a Visual C++ runtime installer.
 set_property(TARGET VaultNative PROPERTY
