@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -34,6 +35,7 @@ struct PatternState{std::vector<int> points;};
 struct PreviewData{fs::path path;std::unique_ptr<Gdiplus::Bitmap> bitmap;};
 static HINSTANCE inst{};static HWND mainH{},pin1{},pin2{},padH{},statusH{},listH{},searchH{},sortH{},codeH{};
 static HFONT normalFont{},boldFont{};static HBRUSH bgBrush{},editBrush{},panelBrush{};
+static std::map<int,HFONT> labelFonts;
 static float uiScale=1.0f;static int uiCenter=545;
 static Page page=UNLOCK;static std::unique_ptr<VaultStore> store;
 static std::vector<VaultItem> items;static std::vector<size_t> visibleItems;static std::vector<uint8_t> master;
@@ -49,9 +51,11 @@ static void rememberRect(HWND h,int x,int y,int w,int he){SetPropW(h,L"LayoutX",
 static void relayoutChild(HWND h){if(!GetPropW(h,L"LayoutW"))return;int x=(int)(INT_PTR)GetPropW(h,L"LayoutX"),y=(int)(INT_PTR)GetPropW(h,L"LayoutY"),w=(int)(INT_PTR)GetPropW(h,L"LayoutW"),he=(int)(INT_PTR)GetPropW(h,L"LayoutH");RECT r=mapRect(x,y,w,he);SetWindowPos(h,nullptr,r.left,r.top,r.right-r.left,r.bottom-r.top,SWP_NOZORDER|SWP_NOACTIVATE);}
 static BOOL CALLBACK relayoutProc(HWND h,LPARAM){relayoutChild(h);return TRUE;}
 static int pageCenter(){switch(page){case SETUP:return 690;case UNLOCK:return 720;case HOME:return 545;case SETTINGS:return 650;case HISTORY:return 650;case PIN_CHANGE:return 725;case PATTERN_CHANGE:return 625;case RESTORE:return 565;}return 545;}
+static HFONT labelFont(int size,bool bold){int key=size*2+(bold?1:0);auto it=labelFonts.find(key);if(it!=labelFonts.end())return it->second;
+ HFONT f=CreateFontW(-std::max(10,size),0,0,0,bold?FW_SEMIBOLD:FW_NORMAL,FALSE,FALSE,FALSE,HEBREW_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_SWISS,L"Segoe UI");labelFonts.emplace(key,f);return f;}
 static HWND label(const std::wstring&t,int x,int y,int w,int h,int size=15,bool bold=false,COLORREF color=TXT,bool centered=false){
  HWND c=CreateWindowExW(WS_EX_RTLREADING,L"STATIC",t.c_str(),WS_CHILD|WS_VISIBLE|(centered?SS_CENTER:SS_RIGHT)|SS_NOPREFIX,x,y,w,h,mainH,nullptr,inst,nullptr);
- rememberRect(c,x,y,w,h);SendMessageW(c,WM_SETFONT,(WPARAM)(bold?boldFont:normalFont),TRUE);SetPropW(c,L"Color",(HANDLE)(INT_PTR)color);return c;}
+ rememberRect(c,x,y,w,h);SendMessageW(c,WM_SETFONT,(WPARAM)labelFont(size,bold),TRUE);SetPropW(c,L"Color",(HANDLE)(INT_PTR)color);return c;}
 static HWND edit(int id,int x,int y,int w,int h,bool secret=false,bool number=false){
  DWORD s=WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL|ES_RIGHT;if(secret)s|=ES_PASSWORD;if(number)s|=ES_NUMBER;
  HWND c=CreateWindowExW(WS_EX_CLIENTEDGE|WS_EX_RTLREADING,L"EDIT",L"",s,x,y,w,h,mainH,(HMENU)(INT_PTR)id,inst,nullptr);rememberRect(c,x,y,w,h);SendMessageW(c,WM_SETFONT,(WPARAM)normalFont,TRUE);return c;}
@@ -189,7 +193,7 @@ static LRESULT CALLBACK MainProc(HWND h,UINT m,WPARAM w,LPARAM l){
  case CLEAR_HISTORY:if(MessageBoxW(h,L"כל רשומות הניסיונות יימחקו לצמיתות. להמשיך?",L"כספת",MB_YESNO|MB_ICONWARNING|MB_RTLREADING|MB_RIGHT)==IDYES){store->ClearAttemptHistory();showHistory();}return 0;}}
  if(m==WM_SIZE&&w==SIZE_MINIMIZED&&!master.empty()){clearSession();return 0;}
  if(m==WM_CLOSE){clearSession();DestroyWindow(h);return 0;}
- if(m==WM_DESTROY){clearSession();if(bgBrush)DeleteObject(bgBrush);if(panelBrush)DeleteObject(panelBrush);if(editBrush)DeleteObject(editBrush);if(normalFont)DeleteObject(normalFont);if(boldFont)DeleteObject(boldFont);PostQuitMessage(0);return 0;}
+ if(m==WM_DESTROY){clearSession();if(bgBrush)DeleteObject(bgBrush);if(panelBrush)DeleteObject(panelBrush);if(editBrush)DeleteObject(editBrush);if(normalFont)DeleteObject(normalFont);if(boldFont)DeleteObject(boldFont);for(auto&f:labelFonts)if(f.second)DeleteObject(f.second);labelFonts.clear();PostQuitMessage(0);return 0;}
  return DefWindowProcW(h,m,w,l);}
 int WINAPI wWinMain(HINSTANCE h,HINSTANCE,PWSTR,int show){inst=h;Gdiplus::GdiplusStartupInput in;Gdiplus::GdiplusStartup(&gdip,&in,nullptr);
  normalFont=CreateFontW(-18,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,HEBREW_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_SWISS,L"Segoe UI");
