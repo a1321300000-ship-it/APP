@@ -161,9 +161,10 @@ static LRESULT CALLBACK PatternProc(HWND h,UINT m,WPARAM w,LPARAM l){auto*s=(Pat
  if(got<0||!s||std::find(s->points.begin(),s->points.end(),got)!=s->points.end())return;
  if(!s->points.empty()){int p=s->points.back(),dr=got/3-p/3,dc=got%3-p%3,a=abs(dr),b=abs(dc);while(b){int t=a%b;a=b;b=t;}int n=std::max(1,a);for(int j=1;j<n;++j){int mid=(p/3+dr/n*j)*3+p%3+dc/n*j;if(std::find(s->points.begin(),s->points.end(),mid)==s->points.end())s->points.push_back(mid);}}
  s->points.push_back(got);};
- if(m==WM_PAINT){PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);RECT r{};GetClientRect(h,&r);HBRUSH bg=CreateSolidBrush(PANEL2);FillRect(dc,&r,bg);DeleteObject(bg);int side=std::min(r.bottom,r.right)-18,g=side/4,left=(r.right-side)/2,top=(r.bottom-side)/2;
+ if(m==WM_ERASEBKGND)return 1;
+ if(m==WM_PAINT){PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);RECT r{};GetClientRect(h,&r);int side=std::min(r.bottom,r.right)-18,g=side/4,left=(r.right-side)/2,top=(r.bottom-side)/2;
  if(s&&s->points.size()>1){HPEN p=CreatePen(PS_SOLID,4,ACC);auto old=SelectObject(dc,p);int n=s->points[0];MoveToEx(dc,left+g+(n%3)*g,top+g+(n/3)*g,nullptr);for(size_t j=1;j<s->points.size();++j){n=s->points[j];LineTo(dc,left+g+(n%3)*g,top+g+(n/3)*g);}SelectObject(dc,old);DeleteObject(p);}
- for(int i=0;i<9;++i){int x=left+g+(i%3)*g,y=top+g+(i/3)*g;bool chosen=s&&std::find(s->points.begin(),s->points.end(),i)!=s->points.end();HBRUSH b=CreateSolidBrush(chosen?ACC:RGB(31,48,66));HPEN p=CreatePen(PS_SOLID,2,chosen?RGB(255,210,220):RGB(101,128,151));auto ob=SelectObject(dc,b),op=SelectObject(dc,p);Ellipse(dc,x-15,y-15,x+15,y+15);SelectObject(dc,ob);SelectObject(dc,op);DeleteObject(b);DeleteObject(p);}EndPaint(h,&ps);return 0;}
+ for(int i=0;i<9;++i){int x=left+g+(i%3)*g,y=top+g+(i/3)*g;bool chosen=s&&std::find(s->points.begin(),s->points.end(),i)!=s->points.end();int radius=std::max(7,(int)std::lround(g*0.16));HBRUSH b=CreateSolidBrush(chosen?ACC:PANEL2);HPEN p=CreatePen(PS_SOLID,2,chosen?RGB(255,210,220):MUTED);auto ob=SelectObject(dc,b),op=SelectObject(dc,p);Ellipse(dc,x-radius,y-radius,x+radius,y+radius);SelectObject(dc,ob);SelectObject(dc,op);DeleteObject(b);DeleteObject(p);}EndPaint(h,&ps);return 0;}
  if(m==WM_LBUTTONDOWN){if(s)s->points.clear();hit(GET_X_LPARAM(l),GET_Y_LPARAM(l));SetCapture(h);InvalidateRect(h,nullptr,TRUE);return 0;}
  if(m==WM_MOUSEMOVE&&(w&MK_LBUTTON)){hit(GET_X_LPARAM(l),GET_Y_LPARAM(l));InvalidateRect(h,nullptr,TRUE);return 0;}
  if(m==WM_LBUTTONUP){ReleaseCapture();if(s){std::wstring v;for(int p:s->points)v.push_back((wchar_t)(L'0'+p));if(v.size()>=4)SendMessageW(GetParent(h),WM_PATTERN,(WPARAM)GetDlgCtrlID(h),(LPARAM)&v);s->points.clear();}InvalidateRect(h,nullptr,TRUE);return 0;}
@@ -176,15 +177,44 @@ static LRESULT CALLBACK MainProc(HWND h,UINT m,WPARAM w,LPARAM l){
  try{store=std::make_unique<VaultStore>();if(store->HasCredentials())showUnlock();else showSetup();}catch(const std::exception&e){message(L"לא ניתן לאתחל את הכספת: "+W(e.what()),MB_ICONERROR);}return 0;}
  if(m==WM_PATTERN){auto*p=(std::wstring*)l;if(p)patternDone(*p);return 0;}
  if(m==WM_DRAWITEM){auto*d=(DRAWITEMSTRUCT*)l;if(d&&d->CtlType==ODT_BUTTON){drawButton(d);return TRUE;}}
- if(m==WM_CTLCOLORSTATIC){HDC dc=(HDC)w;COLORREF c=TXT;HANDLE t=GetPropW((HWND)l,L"Color");if(t)c=(COLORREF)(INT_PTR)t;SetTextColor(dc,c);SetBkMode(dc,TRANSPARENT);return(LRESULT)panelBrush;}
+ if(m==WM_CTLCOLORSTATIC){HDC dc=(HDC)w;COLORREF c=TXT;HANDLE t=GetPropW((HWND)l,L"Color");if(t)c=(COLORREF)(INT_PTR)t;SetTextColor(dc,c);SetBkMode(dc,TRANSPARENT);return(HBRUSH)GetStockObject(HOLLOW_BRUSH);}
  if(m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX){HDC dc=(HDC)w;SetTextColor(dc,TXT);SetBkColor(dc,RGB(10,22,34));return(LRESULT)editBrush;}
  if(m==WM_ERASEBKGND){HDC dc=(HDC)w;RECT r{};GetClientRect(h,&r);HBRUSH b=CreateSolidBrush(BG);FillRect(dc,&r,b);DeleteObject(b);return 1;}
  if(m==WM_SIZE&&w!=SIZE_MINIMIZED){EnumChildWindows(h,relayoutProc,0);InvalidateRect(h,nullptr,TRUE);return 0;}
- if(m==WM_PAINT){PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);RECT r{};GetClientRect(h,&r);HBRUSH base=CreateSolidBrush(BG);FillRect(dc,&r,base);DeleteObject(base);
- float s=1.0f;int oy=0;metrics(s,oy);int cx=r.right/2,pw=(int)std::lround(840*s);
- RECT card{cx-pw/2,oy+(int)std::lround(90*s),cx+pw/2,oy+(int)std::lround(790*s)};
- HPEN edge=CreatePen(PS_SOLID,1,RGB(38,61,79));HGDIOBJ oldP=SelectObject(dc,edge);HGDIOBJ oldB=SelectObject(dc,panelBrush);RoundRect(dc,card.left,card.top,card.right,card.bottom,(int)std::lround(22*s),(int)std::lround(22*s));SelectObject(dc,oldB);SelectObject(dc,oldP);DeleteObject(edge);
- HBRUSH accent=CreateSolidBrush(TEAL);RECT line{card.left+(int)std::lround(28*s),card.top+(int)std::lround(3*s),card.right-(int)std::lround(28*s),card.top+(int)std::lround(5*s)};FillRect(dc,&line,accent);DeleteObject(accent);EndPaint(h,&ps);return 0;}
+ if(m==WM_PAINT){PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);RECT r{};GetClientRect(h,&r);
+ Gdiplus::Graphics g(dc);g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+ Gdiplus::Rect bounds(0,0,std::max(1L,r.right),std::max(1L,r.bottom));
+ Gdiplus::LinearGradientBrush backdrop(bounds,Gdiplus::Color(255,10,23,38),Gdiplus::Color(255,7,13,24),Gdiplus::LinearGradientModeVertical);g.FillRectangle(&backdrop,bounds);
+ Gdiplus::GraphicsPath tealGlowPath;tealGlowPath.AddEllipse((Gdiplus::REAL)(r.right-430),(Gdiplus::REAL)-180,520.0f,520.0f);
+ Gdiplus::PathGradientBrush tealGlow(&tealGlowPath);Gdiplus::Color tealCenter(34,36,215,231),tealEdge(0,36,215,231);tealGlow.SetCenterColor(tealCenter);tealGlow.SetSurroundColor(tealEdge);g.FillPath(&tealGlow,&tealGlowPath);
+ Gdiplus::GraphicsPath roseGlowPath;roseGlowPath.AddEllipse(-190.0f,(Gdiplus::REAL)(r.bottom-360),430.0f,430.0f);
+ Gdiplus::PathGradientBrush roseGlow(&roseGlowPath);Gdiplus::Color roseCenter(28,255,49,90),roseEdge(0,255,49,90);roseGlow.SetCenterColor(roseCenter);roseGlow.SetSurroundColor(roseEdge);g.FillPath(&roseGlow,&roseGlowPath);
+ float s=1.0f;int oy=0;metrics(s,oy);
+ auto panel=[&](int x,int y,int w,int h){RECT q=mapRect(x,y,w,h);Gdiplus::Rect pr(q.left,q.top,q.right-q.left,q.bottom-q.top);if(pr.Width<=0||pr.Height<=0)return;
+   Gdiplus::GraphicsPath path;Gdiplus::REAL rad=18.0f*s,diam=rad*2;
+   path.AddArc(pr.X,pr.Y,diam,diam,180,90);path.AddArc(pr.GetRight()-diam,pr.Y,diam,diam,270,90);
+   path.AddArc(pr.GetRight()-diam,pr.GetBottom()-diam,diam,diam,0,90);path.AddArc(pr.X,pr.GetBottom()-diam,diam,diam,90,90);path.CloseFigure();
+   Gdiplus::LinearGradientBrush fill(pr,Gdiplus::Color(246,25,39,55),Gdiplus::Color(246,16,27,40),Gdiplus::LinearGradientModeForwardDiagonal);
+   Gdiplus::Pen border(Gdiplus::Color(105,100,130,151),std::max(1.0f,s));g.FillPath(&fill,&path);g.DrawPath(&border,&path);
+ };
+ auto badge=[&](int x,int y,int w,int h){RECT q=mapRect(x,y,w,h);Gdiplus::Rect pr(q.left,q.top,q.right-q.left,q.bottom-q.top);Gdiplus::GraphicsPath path;Gdiplus::REAL rad=(pr.Height/2.0f),diam=rad*2;
+   path.AddArc(pr.X,pr.Y,diam,diam,90,180);path.AddArc(pr.GetRight()-diam,pr.Y,diam,diam,270,180);path.CloseFigure();
+   Gdiplus::SolidBrush fill(Gdiplus::Color(48,57,211,221));Gdiplus::Pen edge(Gdiplus::Color(110,90,211,221),1.0f);g.FillPath(&fill,&path);g.DrawPath(&edge,&path);
+ };
+ badge(uiCenter-410,46,220,30);
+ if(page==UNLOCK){
+   panel(470,245,500,155);
+   panel(470,405,500,285);
+ }else if(page==SETUP){
+   panel(350,110,640,680);
+ }else if(page==HOME){
+   panel(120,105,850,650);
+ }else if(page==SETTINGS||page==HISTORY){
+   panel(350,110,600,650);
+ }else if(page==PIN_CHANGE||page==PATTERN_CHANGE||page==RESTORE){
+   panel(350,110,600,600);
+ }
+ EndPaint(h,&ps);return 0;}
  if(m==WM_COMMAND){int id=LOWORD(w),code=HIWORD(w);if(id==SEARCH&&code==EN_CHANGE){refreshFiles();return 0;}if(id==SORT&&code==CBN_SELCHANGE){refreshFiles();return 0;}
  if(id==THRESHOLD&&code==CBN_SELCHANGE){auto s=store->LoadSettings();s.scareThreshold=(int)SendMessageW(sortH,CB_GETCURSEL,0,0)+1;store->SaveSettings(s);return 0;}
  switch(id){case CREATE:createVault();return 0;case OPEN_PIN:attempt(U(Get(pin1)),"pin");return 0;case IMPORT:importFiles();return 0;case BACKUP:backup();return 0;case RESTORE_BTN:beginRestore();return 0;case SETTINGS_BTN:showSettings();return 0;case LOCK:clearSession();showUnlock();return 0;case PREVIEW:previewFile();return 0;case EXPORT:exportFile();return 0;case DELETE_ITEM:deleteFile();return 0;
