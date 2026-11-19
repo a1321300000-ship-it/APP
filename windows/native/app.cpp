@@ -54,8 +54,8 @@ static int pageCenter(){switch(page){case SETUP:return 690;case UNLOCK:return 72
 static HFONT labelFont(int size,bool bold){int key=size*2+(bold?1:0);auto it=labelFonts.find(key);if(it!=labelFonts.end())return it->second;
  HFONT f=CreateFontW(-std::max(10,size),0,0,0,bold?FW_SEMIBOLD:FW_NORMAL,FALSE,FALSE,FALSE,HEBREW_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_SWISS,L"Segoe UI");labelFonts.emplace(key,f);return f;}
 static HWND label(const std::wstring&t,int x,int y,int w,int h,int size=15,bool bold=false,COLORREF color=TXT,bool centered=false){
- HWND c=CreateWindowExW(WS_EX_RTLREADING,L"STATIC",t.c_str(),WS_CHILD|WS_VISIBLE|(centered?SS_CENTER:SS_RIGHT)|SS_NOPREFIX,x,y,w,h,mainH,nullptr,inst,nullptr);
- rememberRect(c,x,y,w,h);SendMessageW(c,WM_SETFONT,(WPARAM)labelFont(size,bold),TRUE);SetPropW(c,L"Color",(HANDLE)(INT_PTR)color);return c;}
+ HWND c=CreateWindowExW(WS_EX_RTLREADING,L"STATIC",t.c_str(),WS_CHILD|WS_VISIBLE|SS_OWNERDRAW|SS_NOPREFIX,x,y,w,h,mainH,nullptr,inst,nullptr);
+ rememberRect(c,x,y,w,h);SetPropW(c,L"LabelFont",(HANDLE)(INT_PTR)labelFont(size,bold));SetPropW(c,L"Color",(HANDLE)(INT_PTR)color);SetPropW(c,L"Centered",(HANDLE)(INT_PTR)(centered?1:0));return c;}
 static HWND edit(int id,int x,int y,int w,int h,bool secret=false,bool number=false){
  DWORD s=WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL|ES_RIGHT;if(secret)s|=ES_PASSWORD;if(number)s|=ES_NUMBER;
  HWND c=CreateWindowExW(WS_EX_CLIENTEDGE|WS_EX_RTLREADING,L"EDIT",L"",s,x,y,w,h,mainH,(HMENU)(INT_PTR)id,inst,nullptr);rememberRect(c,x,y,w,h);SendMessageW(c,WM_SETFONT,(WPARAM)normalFont,TRUE);return c;}
@@ -63,7 +63,7 @@ static HWND button(int id,const std::wstring&t,int x,int y,int w,int h,bool acce
  HWND c=CreateWindowExW(WS_EX_RTLREADING,L"BUTTON",t.c_str(),WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW,x,y,w,h,mainH,(HMENU)(INT_PTR)id,inst,nullptr);
  rememberRect(c,x,y,w,h);SendMessageW(c,WM_SETFONT,(WPARAM)boldFont,TRUE);SetPropW(c,L"Accent",(HANDLE)(INT_PTR)(accent?1:0));return c;}
 static HWND combo(int id,int x,int y,int w,int h){HWND c=CreateWindowExW(WS_EX_RTLREADING,L"COMBOBOX",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|CBS_DROPDOWNLIST|WS_VSCROLL,x,y,w,h,mainH,(HMENU)(INT_PTR)id,inst,nullptr);rememberRect(c,x,y,w,h);SendMessageW(c,WM_SETFONT,(WPARAM)normalFont,TRUE);return c;}
-static HWND pattern(int id,int x,int y,int w,int h){HWND c=CreateWindowExW(0,PC,L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP,x,y,w,h,mainH,(HMENU)(INT_PTR)id,inst,nullptr);rememberRect(c,x,y,w,h);return c;}
+static HWND pattern(int id,int x,int y,int w,int h){HWND c=CreateWindowExW(WS_EX_TRANSPARENT,PC,L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP,x,y,w,h,mainH,(HMENU)(INT_PTR)id,inst,nullptr);rememberRect(c,x,y,w,h);return c;}
 static void header(const std::wstring&sub){label(L"כספת",uiCenter-175,16,350,40,29,true,TXT,true);label(sub,uiCenter-250,54,500,26,13,false,MUTED,true);label(L"●  מקומי ומוצפן",uiCenter-410,48,220,28,12,true,TEAL);}
 static void message(const std::wstring&s,UINT icon=MB_ICONINFORMATION){MessageBoxW(mainH,s.c_str(),L"כספת",MB_OK|icon|MB_RTLREADING|MB_RIGHT);}
 static void setMaster(std::vector<uint8_t> k){if(!master.empty())SecureZeroMemory(master.data(),master.size());master=std::move(k);}
@@ -176,7 +176,10 @@ static LRESULT CALLBACK MainProc(HWND h,UINT m,WPARAM w,LPARAM l){
  WNDCLASSW v{};v.lpfnWndProc=PreviewProc;v.hInstance=inst;v.lpszClassName=VC;v.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&v);
  try{store=std::make_unique<VaultStore>();if(store->HasCredentials())showUnlock();else showSetup();}catch(const std::exception&e){message(L"לא ניתן לאתחל את הכספת: "+W(e.what()),MB_ICONERROR);}return 0;}
  if(m==WM_PATTERN){auto*p=(std::wstring*)l;if(p)patternDone(*p);return 0;}
- if(m==WM_DRAWITEM){auto*d=(DRAWITEMSTRUCT*)l;if(d&&d->CtlType==ODT_BUTTON){drawButton(d);return TRUE;}}
+ if(m==WM_DRAWITEM){auto*d=(DRAWITEMSTRUCT*)l;if(d&&d->CtlType==ODT_BUTTON){drawButton(d);return TRUE;}
+ if(d&&d->CtlType==ODT_STATIC){HDC dc=d->hDC;SetBkMode(dc,TRANSPARENT);SetTextColor(dc,(COLORREF)(INT_PTR)GetPropW(d->hwndItem,L"Color"));
+ HFONT font=(HFONT)(INT_PTR)GetPropW(d->hwndItem,L"LabelFont");HGDIOBJ old=font?SelectObject(dc,font):nullptr;wchar_t value[2048]{};GetWindowTextW(d->hwndItem,value,2048);RECT box=d->rcItem;
+ UINT flags=DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX|DT_RTLREADING|(GetPropW(d->hwndItem,L"Centered")?DT_CENTER:DT_RIGHT);DrawTextW(dc,value,-1,&box,flags);if(old)SelectObject(dc,old);return TRUE;}}
  if(m==WM_CTLCOLORSTATIC){HDC dc=(HDC)w;COLORREF c=TXT;HANDLE t=GetPropW((HWND)l,L"Color");if(t)c=(COLORREF)(INT_PTR)t;SetTextColor(dc,c);SetBkMode(dc,TRANSPARENT);return(LRESULT)(INT_PTR)GetStockObject(HOLLOW_BRUSH);}
  if(m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX){HDC dc=(HDC)w;SetTextColor(dc,TXT);SetBkColor(dc,RGB(10,22,34));return(LRESULT)editBrush;}
  if(m==WM_ERASEBKGND){HDC dc=(HDC)w;RECT r{};GetClientRect(h,&r);HBRUSH b=CreateSolidBrush(BG);FillRect(dc,&r,b);DeleteObject(b);return 1;}
@@ -229,5 +232,5 @@ int WINAPI wWinMain(HINSTANCE h,HINSTANCE,PWSTR,int show){inst=h;Gdiplus::Gdiplu
  normalFont=CreateFontW(-18,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,HEBREW_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_SWISS,L"Segoe UI");
  boldFont=CreateFontW(-19,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,HEBREW_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_SWISS,L"Segoe UI");
  WNDCLASSW wc{};wc.lpfnWndProc=MainProc;wc.hInstance=h;wc.lpszClassName=MC;wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);wc.hIcon=LoadIconW(nullptr,IDI_APPLICATION);
- if(!RegisterClassW(&wc))return 1;HWND wnd=CreateWindowExW(WS_EX_APPWINDOW,MC,L"כספת",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1080,830,nullptr,nullptr,h,nullptr);
+ if(!RegisterClassW(&wc))return 1;HWND wnd=CreateWindowExW(WS_EX_APPWINDOW,MC,L"כספת",WS_OVERLAPPEDWINDOW,CW_USEDEFAULT,CW_USEDEFAULT,1080,830,nullptr,nullptr,h,nullptr);
  if(!wnd)return 2;ShowWindow(wnd,show);UpdateWindow(wnd);MSG msg{};while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}if(gdip)Gdiplus::GdiplusShutdown(gdip);return(int)msg.wParam;}
